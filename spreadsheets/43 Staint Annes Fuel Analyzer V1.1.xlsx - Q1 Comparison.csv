@@ -1,0 +1,44 @@
+Q1 COMPARISON: OLD WINDOWS vs NEW WINDOWS,,
+,,
+"Q1 2025 (Jan 1 - Mar 31, 2025) - OLD WINDOWS",,
+,,
+Days:,90,
+Average Temperature:,-18.0,°C
+Total HDD:,3200.2,
+Average HDD/day:,35.56,
+,,
+Estimated Fuel Used:,611.4,Liters
+Efficiency (OLD WINDOWS):,0.191,L/HDD
+,,
+,,
+"Q1 2026 (Jan 1 - Mar 31, 2026) - NEW WINDOWS",,
+,,
+Days:,#NAME?,
+Average Temperature:,#NAME?,°C
+Total HDD:,#NAME?,
+Average HDD/day:,#NAME?,
+,,
+Actual Fuel Used:,#NAME?,Liters
+Efficiency (NEW WINDOWS):,#NAME?,L/HDD
+,,
+,,
+WINDOW IMPACT MEASUREMENT,,
+,,
+Efficiency Improvement:,#ERROR!,%
+Fuel Savings per HDD:,#ERROR!,L/HDD
+,,
+Annual Fuel Savings:,#ERROR!,Liters/year
+Annual Cost Savings:,#ERROR!,$/year
+,,
+,,
+INSTRUCTIONS:,,
+1. Wait until April 2026 (after Q1 2026 is complete),,
+2. Download Jan-Mar 2026 weather data from Environment Canada,,
+3. Record your fuel fills from Jan-Mar 2026,,
+4. Calculate Q1 2026 L/HDD efficiency,,
+5. Compare to Q1 2025 baseline to measure window impact,,
+,,
+NOTE: Q1 comparison is ideal because:,,
+  • Coldest period = maximum heating demand,,
+  • Same seasonal conditions year-over-year,,
+  • Window impact will be most measurable in cold weather,,

@@ -1,0 +1,17 @@
+{
+  "name": "fuel-tracker",
+  "version": "1.0.0",
+  "description": "Fort Smith Fuel Consumption Tracker",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd server && npm run dev",
+    "client": "cd client && npm run dev",
+    "build": "cd client && npm run build",
+    "seed": "cd server && npm run seed",
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

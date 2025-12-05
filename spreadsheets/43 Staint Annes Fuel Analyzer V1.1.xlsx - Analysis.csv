@@ -1,0 +1,52 @@
+FUEL CONSUMPTION ANALYSIS,,
+,,
+Analysis Period:,"Sept 24 - Nov 21, 2025",
+Days:,58,
+,,
+FUEL CONSUMPTION,,
+Total Liters Used:,425,L
+Average per Day:,7.33,L/day
+,,
+WEATHER SUMMARY,,
+Total HDD:,966,HDD
+Average HDD/day:,16.66,HDD/day
+Average Temperature:,1.34,°C
+,,
+FUEL EFFICIENCY,,
+Liters per HDD:,0.44,L/HDD
+,,
+PREDICTIONS,,
+Current Conditions Continue:,,
+  Daily fuel use:,7.33,L/day
+  Days from 1000L fill:,136.47,days
+,,
+Deep Winter (20 HDD/day):,,
+  Daily fuel use:,8.80,L/day
+  Days from 1000L fill:,113.65,days
+,,
+Mild Winter (15 HDD/day):,,
+  Daily fuel use:,6.60,L/day
+  Days from 1000L fill:,151.53,days
+,,
+COST ANALYSIS,,
+Total Spent (Sept-Nov):,"$3,105.87",$
+Average Price per Liter:,$1.375,$/L
+Cost per Day (Sept-Nov):,$53.55,$/day
+,,
+COST PROJECTIONS,,
+Estimated price $/L:,$1.375,$/L
+,,
+Cost to refill from current (1000L):,,
+  If current at 50%:,$687.63,$
+  If current at 25%:,"$1,031.44",$
+,,
+Monthly heating cost estimates:,,
+  Current conditions:,$302.32,$/month
+  Deep winter:,$363.03,$/month
+  Mild winter:,$272.27,$/month
+,,
+CUSTOM PREDICTION,,
+Enter forecast HDD/day:,12,HDD/day
+  Daily fuel use:,5.28,L/day
+  Days from 1000L fill:,189.41,days
+  Monthly cost:,$217.82,$/month

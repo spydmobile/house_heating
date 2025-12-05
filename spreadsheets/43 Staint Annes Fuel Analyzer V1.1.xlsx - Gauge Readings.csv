@@ -1,0 +1,26 @@
+Date,Gauge %,Est. Liters,Days Since Last,Liters Used,L/day,HDD Period,L/HDD,Notes
+2024-10-23,100.0,1000.0,,,,,,Fill: 572.3L added
+2025-02-25,100.0,1000.0,125,0.0,0.000,,,Fill: 394.7L added
+2025-09-24,100.0,1000.0,211,0.0,0.000,,,Fill: 805L added
+2025-11-08,75.0,750.0,45,250.0,5.556,,,Windows replaced Nov 6-8
+2025-11-21,100.0,1000.0,13,-250.0,-19.231,,,Fill: 424.9L added
+#ERROR!,,0,#ERROR!,1000.0,#ERROR!,,,
+,,,,,,,,
+,,,,,,,,
+HOW TO USE:,,,,,,,,
+1. Record your gauge reading periodically (weekly or whenever you check),,,,,,,,
+2. Enter: Date and Gauge % (columns A and B),,,,,,,,
+3. Est. Liters auto-calculates: Gauge % × 10 (for 1000L tank),,,,,,,,
+4. Other columns calculate consumption since last reading,,,,,,,,
+5. HDD Period: manually enter total HDD between readings (from Weather Data sheet),,,,,,,,
+,,,,,,,,
+EXAMPLE WORKFLOW:,,,,,,,,
+"• Today: Check gauge (e.g., 65%), enter date and 65 in columns A & B",,,,,,,,
+"• Next week: Check gauge (e.g., 58%), enter new date and 58",,,,,,,,
+"• Sheet calculates: 70L used, 10L/day, and if you enter HDD, it shows L/HDD",,,,,,,,
+,,,,,,,,
+BENEFITS:,,,,,,,,
+✓ Track consumption between fills,,,,,,,,
+✓ See immediate impact of window replacement,,,,,,,,
+✓ Identify unusual consumption patterns,,,,,,,,
+✓ Monitor efficiency throughout winter,,,,,,,,

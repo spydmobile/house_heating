@@ -1,0 +1,45 @@
+FORT SMITH FUEL CONSUMPTION TRACKER
+
+HOW TO USE THIS WORKBOOK:
+
+1. DOWNLOAD WEATHER DATA
+   • Go to: https://climate.weather.gc.ca/historical_data/search_historic_data_e.html
+   • Search for: Fort Smith A (Station ID: 2202201)
+   • Select: Daily data
+"   • Download: September, October, November 2025"
+   • Copy Max Temp and Min Temp columns into the 'Weather Data' sheet
+
+2. RECORD FUEL FILLS
+   • Update the 'Fuel Fills' sheet with each delivery
+"   • Record: Date, gauge reading before fill, liters added"
+   • Record: Price per liter and total cost
+   • Total cost will auto-calculate if you enter price/liter
+
+3. VIEW ANALYSIS
+   • Check the 'Analysis' sheet for your fuel efficiency (L/HDD)
+   • This ratio tells you how much fuel you burn per heating degree day
+   • View cost analysis showing total spending and monthly projections
+   • Update the estimated price/L (yellow cell) to project future costs
+
+4. PREDICT FUTURE CONSUMPTION
+   • Use weather forecasts to estimate HDD
+   • Or use the pre-calculated scenarios (mild/normal/deep winter)
+   • Enter custom HDD/day in the yellow cell to see predictions
+
+ABOUT HEATING DEGREE DAYS (HDD):
+
+HDD measures how cold it is and how much heating you need.
+"Formula: HDD = max(0, 18°C - average daily temperature)"
+
+Examples:
+  • If avg temp is -2°C: HDD = 18 - (-2) = 20 HDD
+  • If avg temp is 10°C: HDD = 18 - 10 = 8 HDD
+  • If avg temp is 20°C: HDD = 0 (no heating needed)
+
+Typical Fort Smith HDD/day:
+  • September: 5-8 HDD/day
+  • October: 10-15 HDD/day
+  • November: 15-20 HDD/day
+  • December-February: 20-25+ HDD/day
+  • March: 15-20 HDD/day
+  • April: 8-12 HDD/day
