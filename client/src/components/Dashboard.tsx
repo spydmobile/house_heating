@@ -128,11 +128,7 @@ export function Dashboard() {
 
         {predictions && (
           <div className="lg:col-span-2">
-            <PredictionCard
-              predictions={predictions.predictions}
-              currentLiters={predictions.current_tank.liters}
-              efficiency={predictions.efficiency_used}
-            />
+            <PredictionCard data={predictions} />
           </div>
         )}
       </div>

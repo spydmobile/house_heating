@@ -70,14 +70,45 @@ export interface Prediction {
   estimated_refill_date: string;
 }
 
+export interface ForecastDay {
+  date: string;
+  max_temp: number;
+  min_temp: number;
+  mean_temp: number;
+  hdd: number;
+}
+
+export interface DailyProjection {
+  date: string;
+  hdd: number;
+  fuel_used: number;
+  remaining_liters: number;
+  remaining_percent: number;
+}
+
 export interface PredictionsResponse {
   current_tank: {
     liters: number;
     percent: number;
     as_of: string;
   };
-  efficiency_used: number;
-  predictions: Prediction[];
+  efficiency: {
+    measured: number | null;
+    used: number;
+    source: string;
+  };
+  forecast_based_prediction: {
+    days_until_refill: number;
+    estimated_refill_date: string;
+    refill_threshold_percent: number;
+    daily_projection: DailyProjection[];
+  };
+  forecast: {
+    source: string;
+    days: ForecastDay[];
+    avg_hdd_per_day: number;
+  } | null;
+  scenarios: Prediction[];
   typical_hdd_by_month: Record<number, number>;
 }
 
