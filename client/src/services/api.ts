@@ -10,7 +10,9 @@ import type {
   HvacEfficiencyAnalysis,
 } from '../types';
 
-const API_BASE = 'http://localhost:3001/api';
+// __API_PORT__ injected by vite.config.ts from .env PORT
+declare const __API_PORT__: string;
+const API_BASE = `http://localhost:${__API_PORT__}/api`;
 
 const api = axios.create({
   baseURL: API_BASE,
