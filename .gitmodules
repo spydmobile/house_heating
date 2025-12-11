@@ -1,3 +1,0 @@
-[submodule "Documentation/persist"]
-	path = Documentation/persist
-	url = git@github.com:spydmobile/symbiosis_memory.git
