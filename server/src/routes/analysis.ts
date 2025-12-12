@@ -50,8 +50,9 @@ router.get('/current', (_req: Request, res: Response) => {
     return;
   }
 
-  const currentLiters = estimateLiters(latestReading.gauge_percent);
+  const readingLiters = estimateLiters(latestReading.gauge_percent);
   const readingDate = new Date(latestReading.date);
+  const today = new Date().toISOString().split('T')[0];
 
   // Calculate consumption since last fill
   let consumptionSinceFill: number | null = null;
@@ -64,7 +65,7 @@ router.get('/current', (_req: Request, res: Response) => {
 
     if (daysSinceFill >= 0) {
       // Tank was full after fill, now at current level
-      consumptionSinceFill = config.tankCapacity - currentLiters;
+      consumptionSinceFill = config.tankCapacity - readingLiters;
 
       // Get HDD for this period
       const weatherSummary = db
@@ -80,21 +81,58 @@ router.get('/current', (_req: Request, res: Response) => {
     }
   }
 
-  // Calculate predictions
+  // Use recent efficiency or fall back to typical
+  const efficiency = efficiencySinceFill || 0.4; // Default to 0.4 L/HDD
+
+  // PROJECT CURRENT LEVEL: Calculate estimated current liters based on weather since last reading
+  let projectedLiters = readingLiters;
+  let hddSinceReading: number | null = null;
+  let consumptionSinceReading: number | null = null;
+  let daysSinceReading = 0;
+
+  if (latestReading.date < today) {
+    // Get actual weather data from reading date to today
+    const weatherSinceReading = db
+      .prepare(
+        `SELECT SUM(hdd) as total_hdd, COUNT(*) as days
+         FROM weather_data WHERE date > ? AND date <= ?`
+      )
+      .get(latestReading.date, today) as { total_hdd: number | null; days: number };
+
+    if (weatherSinceReading?.total_hdd) {
+      hddSinceReading = weatherSinceReading.total_hdd;
+      daysSinceReading = weatherSinceReading.days;
+      consumptionSinceReading = efficiency * hddSinceReading;
+      projectedLiters = Math.max(0, readingLiters - consumptionSinceReading);
+    }
+  }
+
+  const projectedPercent = (projectedLiters / config.tankCapacity) * 100;
+
+  // Calculate predictions based on PROJECTED current level
   const currentMonth = new Date().getMonth() + 1;
   const typicalHDD = getTypicalHDDForMonth(currentMonth);
 
-  // Use recent efficiency or fall back to typical
-  const efficiency = efficiencySinceFill || 0.4; // Default to 0.4 L/HDD
-  const daysUntilRefill = predictDaysUntilRefill(currentLiters, efficiency, typicalHDD);
-  const refillDate = predictRefillDate(new Date(), currentLiters, efficiency, typicalHDD);
+  const daysUntilRefill = predictDaysUntilRefill(projectedLiters, efficiency, typicalHDD);
+  const refillDate = predictRefillDate(new Date(), projectedLiters, efficiency, typicalHDD);
 
   res.json({
     tank: {
-      current_liters: Math.round(currentLiters),
-      current_percent: latestReading.gauge_percent,
-      capacity: config.tankCapacity,
+      // Last actual reading
+      reading_liters: Math.round(readingLiters),
+      reading_percent: latestReading.gauge_percent,
       reading_date: latestReading.date,
+      // Projected current level
+      current_liters: Math.round(projectedLiters),
+      current_percent: Math.round(projectedPercent),
+      capacity: config.tankCapacity,
+      // Projection details
+      projection: {
+        hdd_since_reading: hddSinceReading ? Math.round(hddSinceReading * 10) / 10 : null,
+        consumption_since_reading: consumptionSinceReading ? Math.round(consumptionSinceReading * 10) / 10 : null,
+        days_since_reading: daysSinceReading,
+        efficiency_used: Math.round(efficiency * 1000) / 1000,
+      },
     },
     consumption: {
       since_fill_liters: consumptionSinceFill ? Math.round(consumptionSinceFill) : null,

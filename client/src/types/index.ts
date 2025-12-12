@@ -40,10 +40,21 @@ export interface WeatherData {
 
 export interface CurrentAnalysis {
   tank: {
+    // Last actual reading
+    reading_liters: number;
+    reading_percent: number;
+    reading_date: string;
+    // Projected current level
     current_liters: number;
     current_percent: number;
     capacity: number;
-    reading_date: string;
+    // Projection details
+    projection: {
+      hdd_since_reading: number | null;
+      consumption_since_reading: number | null;
+      days_since_reading: number;
+      efficiency_used: number;
+    };
   };
   consumption: {
     since_fill_liters: number | null;

@@ -7,6 +7,7 @@ import readingsRouter from './routes/readings.js';
 import weatherRouter from './routes/weather.js';
 import analysisRouter from './routes/analysis.js';
 import hvacRouter from './routes/hvac.js';
+import { startWeatherSync } from './services/weatherSync.js';
 
 const app = express();
 
@@ -33,4 +34,7 @@ app.get('/api/health', (_req, res) => {
 app.listen(config.port, () => {
   console.log(`Fuel Tracker API running on http://localhost:${config.port}`);
   console.log(`Database: ${config.dbPath}`);
+
+  // Start automatic weather sync after server is ready
+  startWeatherSync();
 });

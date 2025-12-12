@@ -2,9 +2,11 @@ interface TankGaugeProps {
   percent: number;
   liters: number;
   capacity: number;
+  isProjected?: boolean;
+  daysSinceReading?: number;
 }
 
-export function TankGauge({ percent, liters, capacity }: TankGaugeProps) {
+export function TankGauge({ percent, liters, capacity, isProjected, daysSinceReading }: TankGaugeProps) {
   // Determine color based on level
   const getColor = () => {
     if (percent <= 20) return 'bg-red-500';
@@ -14,7 +16,14 @@ export function TankGauge({ percent, liters, capacity }: TankGaugeProps) {
 
   return (
     <div className="bg-white rounded-lg shadow p-6">
-      <h3 className="text-lg font-semibold text-gray-700 mb-4">Tank Level</h3>
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-lg font-semibold text-gray-700">Tank Level</h3>
+        {isProjected && daysSinceReading ? (
+          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+            Est. ({daysSinceReading}d ago)
+          </span>
+        ) : null}
+      </div>
 
       <div className="flex items-center gap-6">
         {/* Visual Tank */}

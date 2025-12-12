@@ -16,21 +16,13 @@ interface WeatherFetchResult {
   }>;
 }
 
-interface StationData {
-  station_name?: string[];
-  transport_canada_id?: string[];
-  air_temperature_yesterday_high?: string[];
-  air_temperature_yesterday_low?: string[];
-}
-
 /**
  * Fetch weather data from Environment Canada MSC Datamart
- * Data is available for the last 30 days
  *
- * URL pattern:
- * https://dd.weather.gc.ca/YYYYMMDD/WXO-DD/observations/xml/NT/yesterday/yesterday_nt_YYYYMMDD_e.xml
+ * URL pattern for today's file:
+ * https://dd.weather.gc.ca/today/observations/xml/NT/yesterday/yesterday_nt_YYYYMMDD_e.xml
  *
- * The file dated YYYYMMDD contains yesterday's data (for YYYY-MM-(DD-1))
+ * The file contains yesterday's data for all NT stations
  */
 export async function fetchWeatherData(fromDate: string, toDate: string): Promise<WeatherFetchResult> {
   const result: WeatherFetchResult = {
@@ -61,41 +53,18 @@ export async function fetchWeatherData(fromDate: string, toDate: string): Promis
     fileDate.setDate(fileDate.getDate() + 1);
     const fileDateStr = fileDate.toISOString().split('T')[0].replace(/-/g, '');
 
-    const url = `${config.mscDatamartUrl}/${fileDateStr}/WXO-DD/observations/xml/NT/yesterday/yesterday_nt_${fileDateStr}_e.xml`;
+    // Try /today/ path first (for recent data), then dated path
+    const urls = [
+      `${config.mscDatamartUrl}/today/observations/xml/NT/yesterday/yesterday_nt_${fileDateStr}_e.xml`,
+      `${config.mscDatamartUrl}/${fileDateStr}/WXO-DD/observations/xml/NT/yesterday/yesterday_nt_${fileDateStr}_e.xml`,
+    ];
 
-    try {
-      const response = await fetch(url);
+    let success = false;
+    for (const url of urls) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) continue;
 
-      if (!response.ok) {
-        // Try the /today/ path for recent data
-        const todayUrl = `${config.mscDatamartUrl}/today/observations/xml/NT/yesterday/yesterday_nt_${fileDateStr}_e.xml`;
-        const todayResponse = await fetch(todayUrl);
-
-        if (!todayResponse.ok) {
-          result.skipped++;
-          result.errors.push(`${dataDate}: Data not available (${response.status})`);
-          current.setDate(current.getDate() + 1);
-          continue;
-        }
-
-        const xmlText = await todayResponse.text();
-        const weatherData = await parseWeatherXml(xmlText, dataDate);
-
-        if (weatherData) {
-          insertStmt.run(
-            dataDate,
-            weatherData.max_temp,
-            weatherData.min_temp,
-            weatherData.mean_temp,
-            weatherData.hdd
-          );
-          result.fetched++;
-          result.data.push(weatherData);
-        } else {
-          result.skipped++;
-          result.errors.push(`${dataDate}: Fort Smith station not found in data`);
-        }
-      } else {
         const xmlText = await response.text();
         const weatherData = await parseWeatherXml(xmlText, dataDate);
 
@@ -109,16 +78,18 @@ export async function fetchWeatherData(fromDate: string, toDate: string): Promis
           );
           result.fetched++;
           result.data.push(weatherData);
-        } else {
-          result.skipped++;
-          result.errors.push(`${dataDate}: Fort Smith station not found in data`);
+          success = true;
+          break;
         }
+      } catch (error) {
+        // Try next URL
+        continue;
       }
-    } catch (error) {
+    }
+
+    if (!success) {
       result.skipped++;
-      result.errors.push(
-        `${dataDate}: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+      result.errors.push(`${dataDate}: Fort Smith station not found in data`);
     }
 
     current.setDate(current.getDate() + 1);
@@ -132,34 +103,83 @@ async function parseWeatherXml(
   dataDate: string
 ): Promise<{ date: string; max_temp: number; min_temp: number; mean_temp: number; hdd: number } | null> {
   try {
-    const parsed = await parseStringPromise(xmlText);
+    const parsed = await parseStringPromise(xmlText, {
+      explicitArray: false,
+      ignoreAttrs: false,
+      tagNameProcessors: [(name) => name.replace(/^.*:/, '')], // Strip namespace prefixes
+    });
 
-    // Navigate XML structure to find Fort Smith station
-    const observations = parsed?.observations?.observation || [];
+    // Navigate the om:ObservationCollection structure
+    const collection = parsed?.ObservationCollection;
+    if (!collection) return null;
 
-    for (const obs of observations) {
-      const stationData = obs as StationData;
+    // Get all members (observations)
+    let members = collection.member;
+    if (!members) return null;
+    if (!Array.isArray(members)) members = [members];
 
-      // Look for Fort Smith by transport_canada_id (ZSM) or station name
-      const stationId = stationData.transport_canada_id?.[0];
-      const stationName = stationData.station_name?.[0]?.toLowerCase() || '';
+    for (const member of members) {
+      const observation = member.Observation;
+      if (!observation) continue;
 
-      if (stationId === config.weatherStation || stationName.includes('fort smith')) {
-        const highTemp = parseFloat(stationData.air_temperature_yesterday_high?.[0] || '');
-        const lowTemp = parseFloat(stationData.air_temperature_yesterday_low?.[0] || '');
+      const metadata = observation.metadata?.set;
+      if (!metadata) continue;
 
-        if (!isNaN(highTemp) && !isNaN(lowTemp)) {
-          const meanTemp = calculateMeanTemp(lowTemp, highTemp);
-          const hdd = calculateHDD(meanTemp);
+      // Get identification elements
+      const idElements = metadata['identification-elements']?.element;
+      if (!idElements) continue;
 
-          return {
-            date: dataDate,
-            max_temp: highTemp,
-            min_temp: lowTemp,
-            mean_temp: Math.round(meanTemp * 100) / 100,
-            hdd: Math.round(hdd * 100) / 100,
-          };
+      const idArray = Array.isArray(idElements) ? idElements : [idElements];
+
+      // Find station name and transport_canada_id
+      let stationName = '';
+      let stationId = '';
+
+      for (const el of idArray) {
+        const name = el.$?.name;
+        const value = el.$?.value;
+        if (name === 'station_name') stationName = value?.toLowerCase() || '';
+        if (name === 'transport_canada_id') stationId = value || '';
+      }
+
+      // Check if this is Fort Smith (ZSM or YSM for airport)
+      if (stationId !== config.weatherStation &&
+          stationId !== 'YSM' &&
+          !stationName.includes('fort smith')) {
+        continue;
+      }
+
+      // Get result elements (temperatures)
+      const resultElements = observation.result?.elements?.element;
+      if (!resultElements) continue;
+
+      const resultArray = Array.isArray(resultElements) ? resultElements : [resultElements];
+
+      let highTemp: number | null = null;
+      let lowTemp: number | null = null;
+
+      for (const el of resultArray) {
+        const name = el.$?.name;
+        const value = el.$?.value;
+        if (name === 'air_temperature_yesterday_high' && value) {
+          highTemp = parseFloat(value);
         }
+        if (name === 'air_temperature_yesterday_low' && value) {
+          lowTemp = parseFloat(value);
+        }
+      }
+
+      if (highTemp !== null && lowTemp !== null && !isNaN(highTemp) && !isNaN(lowTemp)) {
+        const meanTemp = calculateMeanTemp(lowTemp, highTemp);
+        const hdd = calculateHDD(meanTemp);
+
+        return {
+          date: dataDate,
+          max_temp: highTemp,
+          min_temp: lowTemp,
+          mean_temp: Math.round(meanTemp * 100) / 100,
+          hdd: Math.round(hdd * 100) / 100,
+        };
       }
     }
 

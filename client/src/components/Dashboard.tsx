@@ -90,7 +90,12 @@ export function Dashboard() {
           <p className="text-gray-500">Fort Smith, NWT</p>
         </div>
         <div className="text-right text-sm text-gray-500">
-          Last reading: {analysis?.tank.reading_date}
+          <div>Last reading: {analysis?.tank.reading_date} ({analysis?.tank.reading_percent}%)</div>
+          {analysis?.tank.projection.days_since_reading ? (
+            <div className="text-xs text-blue-600">
+              Projected: -{analysis.tank.projection.consumption_since_reading}L over {analysis.tank.projection.days_since_reading} days ({analysis.tank.projection.hdd_since_reading} HDD)
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -124,6 +129,8 @@ export function Dashboard() {
           percent={analysis?.tank.current_percent ?? 0}
           liters={analysis?.tank.current_liters ?? 0}
           capacity={analysis?.tank.capacity ?? 1000}
+          isProjected={!!analysis?.tank.projection.days_since_reading}
+          daysSinceReading={analysis?.tank.projection.days_since_reading}
         />
 
         {predictions && (
