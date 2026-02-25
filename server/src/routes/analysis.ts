@@ -54,20 +54,20 @@ router.get('/current', (_req: Request, res: Response) => {
   const readingDate = new Date(latestReading.date);
   const today = new Date().toISOString().split('T')[0];
 
-  // Calculate consumption since last fill
+  // Calculate consumption since last fill (only when reading is after fill)
   let consumptionSinceFill: number | null = null;
   let daysSinceFill: number | null = null;
   let efficiencySinceFill: number | null = null;
 
   if (latestFill) {
     const fillDate = new Date(latestFill.date);
-    daysSinceFill = Math.round((readingDate.getTime() - fillDate.getTime()) / (1000 * 60 * 60 * 24));
+    const daysBetween = Math.round((readingDate.getTime() - fillDate.getTime()) / (1000 * 60 * 60 * 24));
 
-    if (daysSinceFill >= 0) {
-      // Tank was full after fill, now at current level
+    if (daysBetween >= 0) {
+      // Reading is after fill — can calculate consumption
+      daysSinceFill = daysBetween;
       consumptionSinceFill = config.tankCapacity - readingLiters;
 
-      // Get HDD for this period
       const weatherSummary = db
         .prepare(
           `SELECT SUM(hdd) as total_hdd, AVG(hdd) as avg_hdd, COUNT(*) as days
@@ -78,6 +78,9 @@ router.get('/current', (_req: Request, res: Response) => {
       if (weatherSummary?.total_hdd && consumptionSinceFill > 0) {
         efficiencySinceFill = calculateEfficiency(consumptionSinceFill, weatherSummary.total_hdd);
       }
+    } else {
+      // Fill is after reading — calculate days since the newer fill
+      daysSinceFill = Math.round((new Date(today).getTime() - fillDate.getTime()) / (1000 * 60 * 60 * 24));
     }
   }
 
@@ -85,10 +88,25 @@ router.get('/current', (_req: Request, res: Response) => {
   const efficiency = efficiencySinceFill || 0.4; // Default to 0.4 L/HDD
 
   // PROJECT CURRENT LEVEL: Calculate estimated current liters based on weather since last reading
+  // and any fuel fills that occurred after the last gauge reading
   let projectedLiters = readingLiters;
   let hddSinceReading: number | null = null;
   let consumptionSinceReading: number | null = null;
   let daysSinceReading = 0;
+  let fillsSinceReading = 0;
+
+  // Add back any fills that happened after the last gauge reading
+  const fillsSinceReadingResult = db
+    .prepare(
+      `SELECT SUM(liters_added) as total_added, COUNT(*) as fill_count
+       FROM fuel_fills WHERE date > ?`
+    )
+    .get(latestReading.date) as { total_added: number | null; fill_count: number };
+
+  if (fillsSinceReadingResult?.total_added) {
+    projectedLiters += fillsSinceReadingResult.total_added;
+    fillsSinceReading = fillsSinceReadingResult.fill_count;
+  }
 
   if (latestReading.date < today) {
     // Get actual weather data from reading date to today
@@ -103,10 +121,12 @@ router.get('/current', (_req: Request, res: Response) => {
       hddSinceReading = weatherSinceReading.total_hdd;
       daysSinceReading = weatherSinceReading.days;
       consumptionSinceReading = efficiency * hddSinceReading;
-      projectedLiters = Math.max(0, readingLiters - consumptionSinceReading);
+      projectedLiters = Math.max(0, projectedLiters - consumptionSinceReading);
     }
   }
 
+  // Cap at tank capacity
+  projectedLiters = Math.min(projectedLiters, config.tankCapacity);
   const projectedPercent = (projectedLiters / config.tankCapacity) * 100;
 
   // Calculate predictions based on PROJECTED current level
@@ -137,9 +157,11 @@ router.get('/current', (_req: Request, res: Response) => {
     consumption: {
       since_fill_liters: consumptionSinceFill ? Math.round(consumptionSinceFill) : null,
       days_since_fill: daysSinceFill,
-      liters_per_day: daysSinceFill && consumptionSinceFill
-        ? Math.round((consumptionSinceFill / daysSinceFill) * 100) / 100
-        : null,
+      liters_per_day: consumptionSinceReading && daysSinceReading
+        ? Math.round((consumptionSinceReading / daysSinceReading) * 100) / 100
+        : daysSinceFill && consumptionSinceFill
+          ? Math.round((consumptionSinceFill / daysSinceFill) * 100) / 100
+          : null,
     },
     efficiency: {
       current_l_per_hdd: efficiencySinceFill
@@ -170,31 +192,48 @@ router.get('/predictions', async (_req: Request, res: Response) => {
     return;
   }
 
-  const currentLiters = estimateLiters(latestReading.gauge_percent);
+  const readingLiters = estimateLiters(latestReading.gauge_percent);
+  const todayStr = new Date().toISOString().split('T')[0];
 
   // Get most recent fill to calculate actual efficiency
   const latestFill = db
     .prepare('SELECT * FROM fuel_fills ORDER BY date DESC LIMIT 1')
     .get() as FillRow | undefined;
 
-  // Calculate real efficiency from consumption since last fill
-  let measuredEfficiency: number | null = null;
-  if (latestFill) {
-    const consumptionSinceFill = config.tankCapacity - currentLiters;
-    const weatherSinceFill = db
+  // Use measured efficiency or fall back to post-window-upgrade estimate
+  const efficiency = 0.4; // TODO: calculate measured efficiency from complete fill cycles
+
+  // Project current level: start from gauge reading, subtract consumption, add fills
+  let currentLiters = readingLiters;
+
+  // Add fills that occurred after the last gauge reading
+  const fillsSinceReading = db
+    .prepare(
+      `SELECT SUM(liters_added) as total_added
+       FROM fuel_fills WHERE date > ?`
+    )
+    .get(latestReading.date) as { total_added: number | null };
+
+  if (fillsSinceReading?.total_added) {
+    currentLiters += fillsSinceReading.total_added;
+  }
+
+  // Subtract consumption since gauge reading using weather data
+  if (latestReading.date < todayStr) {
+    const weatherSinceReading = db
       .prepare(
         `SELECT SUM(hdd) as total_hdd FROM weather_data
          WHERE date > ? AND date <= ?`
       )
-      .get(latestFill.date, latestReading.date) as { total_hdd: number | null };
+      .get(latestReading.date, todayStr) as { total_hdd: number | null };
 
-    if (weatherSinceFill?.total_hdd && consumptionSinceFill > 0) {
-      measuredEfficiency = consumptionSinceFill / weatherSinceFill.total_hdd;
+    if (weatherSinceReading?.total_hdd) {
+      currentLiters -= efficiency * weatherSinceReading.total_hdd;
     }
   }
 
-  // Use measured efficiency or fall back to post-window-upgrade estimate
-  const efficiency = measuredEfficiency || 0.4;
+  // Cap at tank capacity
+  currentLiters = Math.min(Math.max(0, currentLiters), config.tankCapacity);
 
   // Fetch 7-day forecast
   let forecast: ForecastDay[] = [];
@@ -281,13 +320,13 @@ router.get('/predictions', async (_req: Request, res: Response) => {
   res.json({
     current_tank: {
       liters: Math.round(currentLiters),
-      percent: latestReading.gauge_percent,
+      percent: Math.round((currentLiters / config.tankCapacity) * 100),
       as_of: latestReading.date,
     },
     efficiency: {
-      measured: measuredEfficiency ? Math.round(measuredEfficiency * 1000) / 1000 : null,
+      measured: null,
       used: Math.round(efficiency * 1000) / 1000,
-      source: measuredEfficiency ? 'measured from recent consumption' : 'estimated (post-window upgrade)',
+      source: 'estimated (post-window upgrade)',
     },
     forecast_based_prediction: {
       days_until_refill: daysUntilRefill,
