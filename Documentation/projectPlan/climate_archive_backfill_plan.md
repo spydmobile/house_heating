@@ -57,10 +57,68 @@ logic permits a mix across dates.** Sources are `imported` (59 rows, 2025-09-24 
 2025-11-21) and `auto` (50 rows, 2025-11-22 → 2026-02-24).
 
 **Fort Smith A is the airport; Fort Smith Climate is a different site with different
-exposure.** A before/after efficiency comparison that silently changes station partway
-introduces a systematic bias that could be **comparable to or larger than the 10–30%
-effect being measured.** This is the failure mode where the measurement looks fine and is
-wrong.
+exposure.** A before/after comparison that silently changes station partway introduces a
+systematic bias, and provenance that is not recorded cannot be audited later.
+
+### CORRECTION — I overstated this, and here is the measurement
+
+I first wrote that the station bias *"could be comparable to or larger than the 10–30%
+effect being measured."* **Measured, it is not.** Same days, both stations:
+
+| date | ZSM | YSM | diff | EC HDD |
+|---|---|---|---|---|
+| 2025-01-15 | −4.0 | −4.1 | +0.1 | 22.0 vs 22.1 |
+| 2025-02-15 | −24.1 | −25.0 | +0.9 | 42.1 vs 43.0 |
+| 2025-03-15 | −20.1 | −20.7 | +0.6 | 38.1 vs 38.7 |
+| 2026-01-15 | −15.8 | −16.2 | +0.4 | 33.8 vs 34.2 |
+
+**ZSM runs ~0.5 °C warmer than YSM, max 0.9 °C.** That is ~0.5 HDD/day — roughly **45 HDD
+across a 90-day quarter out of ~3,000, about 1.5%.** Well inside the effect being measured.
+
+**The hypothesis was sound and the magnitude was invented.** Recording station provenance
+is still right — it is cheap and makes the question answerable instead of arguable — but it
+is a hygiene measure, not the threat to the measurement I claimed it was. The real threat
+is below.
+
+### THE ACTUAL THREAT: asymmetric missing days
+
+Verified against the archive rather than the inventory metadata, because coverage dates are
+not the same as present records:
+
+| period | days returned | with mean temp | missing |
+|---|---|---|---|
+| **Q1 2025 (baseline)** | 90/90 | **89** | 2025-01-03 |
+| **Q1 2026 (comparison)** | 90/90 | **87** | 2026-01-12, 2026-02-19, 2026-03-11 |
+| Dec 2025 | 31/31 | 30 | 2025-12-03 |
+| 2024 (extra baseline) | 366/366 | 355 | 11 days |
+
+**Three days missing from Q1 2026 against one from Q1 2025 is an asymmetry, and it biases
+the result in the direction that hides an improvement.** A missing day removes its HDD from
+the quarterly denominator, so L/HDD is overstated. ~3 days × ~35 HDD ≈ **105 HDD absent
+from 2026** against ~32 from 2025 — about **2.4% of a quarter**, which is *larger than the
+1.5% station bias it would cost to fix*.
+
+**And the fix exists.** Checked day by day:
+
+| missing day | ZSM | YSM/53119 | YSM/54218 |
+|---|---|---|---|
+| 2025-01-03 | NULL | **NULL** | **NULL** |
+| 2026-01-12 | NULL | −13.4 | −13.4 |
+| 2026-02-19 | NULL | −27.6 | −27.6 |
+| 2026-03-11 | NULL | −21.1 | −21.1 |
+| 2025-12-03 | NULL | −17.3 | −17.3 |
+
+**Four of the five are recoverable from YSM at a cost of ~0.5 °C of station bias — which
+is the right trade, because the gap it closes is the larger error.** `2025-01-03` is
+genuinely unavailable: no Fort Smith station recorded it. **It is recorded as missing and
+never interpolated**, and the comparison is computed over matched days so a hole on one
+side does not silently shorten one quarter.
+
+### BONUS — the archive ships a control for our own HDD maths
+
+`climate-daily` includes **`HEATING_DEGREE_DAYS`**, base 18 °C, the same Canadian standard
+`calculations.ts` implements. **That is a known-positive control**: our computed HDD can be
+asserted against Environment Canada's own figure per day. The project has never had one.
 
 ### Recommendation — rebuild the whole series from one station
 
@@ -129,13 +187,16 @@ Each step is red → green → refactor, one failing test at a time, output show
 implementation.
 
 1. **Station resolution** — resolving `'ZSM'` returns STN_ID 41884; an unknown code throws
-   rather than defaulting.
+   rather than defaulting. **A filter on a property the API does not have returns zero
+   matches silently rather than erroring** (hit three times during this investigation), so
+   a zero-row result must be distinguishable from a failed query.
 2. **Parse one archive day** — a known fixture day yields `{date, max_temp, min_temp,
    mean_temp}`; a day with missing max/min yields nulls, **never a computed guess**.
 3. **Range request** — a date range produces the expected set of days, and days the archive
    lacks are reported as missing rather than omitted silently.
 4. **HDD via `calculations.ts`** — mean −14 °C gives HDD 32; the existing function is
-   called, not duplicated.
+   called, not duplicated. **Asserted against the archive's own `HEATING_DEGREE_DAYS`** for
+   every backfilled day, which is a real control rather than a self-consistency check.
 5. **Idempotent persistence** — re-running a range does not duplicate rows (`date` is
    UNIQUE) and records `station` and `source`.
 6. **Provenance guard** — refuse to write a row whose station differs from the series'
@@ -150,6 +211,10 @@ implementation.
   from the existing `auto` rows. **If they disagree beyond rounding, that is the
   station-mixing bias made visible, and it is a finding rather than a nuisance.**
 - Day counts asserted per month, so "6 of 31" can never again pass as a quarter.
+- **Matched-day comparison**: Q1 2025 and Q1 2026 compared over days present in both, so
+  `2025-01-03` shortens neither quarter asymmetrically.
+- Every row carries its `station`, so the 4 YSM-sourced days are visible and auditable
+  rather than blended in.
 
 ---
 
