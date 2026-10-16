@@ -36,6 +36,9 @@ function testApp() {
   fills.get('/', (_req, res) => {
     res.json([{ id: 1 }]);
   });
+  fills.get('/explode', (_req, _res, next) => {
+    next(new Error('connection terminated unexpectedly'));
+  });
 
   return createApp({
     clientDistPath: clientDist,
@@ -79,6 +82,33 @@ describe('createApp', () => {
 
       expect(response.status).toBe(404);
       expect(response.type).toMatch(/json/);
+    });
+  });
+
+  /**
+   * Express's DEFAULT error handler returns an HTML 500 — the same shape of
+   * problem as its HTML 404. An API client handed HTML where it expects JSON
+   * reports a parse error rather than the real failure, and a service worker in
+   * front can cache that HTML as an API response.
+   *
+   * The body must also not leak a stack trace: these pages are served to a
+   * phone over the tailnet, and an internal path or query fragment in an error
+   * body is not something to hand out because the default handler happens to.
+   */
+  describe('errors', () => {
+    it('returns a JSON 500, not HTML, when a route fails', async () => {
+      const response = await request(testApp()).get('/api/fills/explode');
+
+      expect(response.status).toBe(500);
+      expect(response.type).toMatch(/json/);
+      expect(response.text).not.toMatch(/<!doctype html>/i);
+    });
+
+    it('does not leak the error message or a stack trace to the client', async () => {
+      const response = await request(testApp()).get('/api/fills/explode');
+
+      expect(response.text).not.toMatch(/connection terminated/i);
+      expect(response.text).not.toMatch(/at .*createApp/i);
     });
   });
 

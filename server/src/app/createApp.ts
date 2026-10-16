@@ -1,4 +1,10 @@
-import express, { type Express, type Router, type Request, type Response } from 'express';
+import express, {
+  type Express,
+  type Router,
+  type Request,
+  type Response,
+  type NextFunction,
+} from 'express';
 import cors from 'cors';
 import { join } from 'node:path';
 
@@ -16,6 +22,7 @@ import { join } from 'node:path';
  *   3. static       — the Vite build
  *   4. SPA fallback — HTML GETs only
  *   5. JSON 404      — because Express's own 404 page is HTML
+ *   6. JSON 500      — because its error handler is HTML too, with a stack trace
  *
  * Step 2 is the one that is easy to omit. Without it an unmatched `/api/...`
  * falls through to step 4 and returns 200 with an HTML body, which reads as a
@@ -92,6 +99,27 @@ export function createApp({ clientDistPath, routers }: AppDependencies): Express
   // HTML. Found by the tests rather than by reading the docs.
   app.use((_req: Request, res: Response) => {
     res.status(404).json({ error: 'Not found' });
+  });
+
+  // --- 6. Error handler ----------------------------------------------------
+  // Express's DEFAULT error handler also answers with HTML, and in a
+  // non-production NODE_ENV it includes the stack trace in the body. Both are
+  // wrong here: an API client handed HTML reports a parse error instead of the
+  // real failure, and a stack trace is not something to hand to a browser
+  // because the framework default happens to.
+  //
+  // The real error IS logged server-side — swallowing it entirely would trade
+  // one silent failure for another.
+  //
+  // Four arguments, and all four are required: Express identifies error
+  // middleware by arity, so dropping the unused `next` silently turns this back
+  // into an ordinary handler that never runs.
+  app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    console.error('[house-heating] unhandled request error:', error);
+
+    if (res.headersSent) return;
+
+    res.status(500).json({ error: 'Internal server error' });
   });
 
   return app;
