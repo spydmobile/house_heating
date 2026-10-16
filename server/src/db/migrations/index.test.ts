@@ -48,9 +48,14 @@ describe('migration registry', () => {
    * for the measurement the project exists to produce, so it gets a guard
    * against being quietly edited out.
    */
-  it('declares client_uuid UNIQUE on fuel_fills, which the offline queue depends on', () => {
-    const initial = migrations.find((m) => m.version === 1);
+  it.each(['fuel_fills', 'gauge_readings'])(
+    'declares client_uuid UNIQUE on %s, which the offline queue depends on',
+    (table) => {
+      const initial = migrations.find((m) => m.version === 1);
+      const tableBlock = initial?.sql.split(`CREATE TABLE ${table} (`)[1]?.split(');')[0];
 
-    expect(initial?.sql).toMatch(/client_uuid\s+UUID\s+UNIQUE/i);
-  });
+      expect(tableBlock, `${table} block not found in migration 001`).toBeDefined();
+      expect(tableBlock).toMatch(/client_uuid\s+UUID\s+UNIQUE/i);
+    },
+  );
 });
