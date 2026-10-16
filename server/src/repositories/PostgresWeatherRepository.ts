@@ -127,6 +127,45 @@ export class PostgresWeatherRepository {
   }
 
   /**
+   * Days in an optionally-bounded range, newest first.
+   *
+   * The client's `getWeather(from?, to?)` may send either bound, both, or
+   * neither — Dashboard.tsx calls it with none — so all four shapes are valid
+   * requests rather than errors.
+   *
+   * The old sqlite route built this by concatenating clause text onto a query
+   * string. The clauses are assembled here too, but every BOUND is a bound
+   * parameter, so a date can never become part of the SQL text regardless of
+   * what arrives in the query string.
+   */
+  async findRange(
+    from: string | null,
+    to: string | null,
+  ): Promise<WeatherDay[]> {
+    const clauses: string[] = [];
+    const params: string[] = [];
+
+    if (from !== null) {
+      params.push(from);
+      clauses.push(`date >= $${params.length}`);
+    }
+
+    if (to !== null) {
+      params.push(to);
+      clauses.push(`date <= $${params.length}`);
+    }
+
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+
+    const result = await this.client.query(
+      `SELECT ${COLUMNS} FROM weather_data ${where} ORDER BY date DESC;`,
+      params,
+    );
+
+    return result.rows.map(toRow);
+  }
+
+  /**
    * Degree days BETWEEN two gauge readings: exclusive of the earlier day,
    * inclusive of the later one. Without the exclusive bound the boundary day is
    * counted in both of two adjacent periods.

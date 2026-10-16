@@ -232,4 +232,60 @@ describe('PostgresWeatherRepository', () => {
       expect(client.calls[0].params ?? []).toEqual([]);
     });
   });
+
+  /**
+   * `findRange` takes OPTIONAL bounds, because the client's `getWeather(from?,
+   * to?)` can send either, both, or neither — and Dashboard.tsx calls it with
+   * none. The old sqlite route handled this by concatenating clauses onto a
+   * query string; this builds the same four shapes with bound parameters
+   * instead, so a bound can never become part of the SQL text.
+   */
+  describe('findRange', () => {
+    it('returns every day when neither bound is given', async () => {
+      const client = fakeClient([dbRow]);
+
+      await new PostgresWeatherRepository(client).findRange(null, null);
+
+      expect(client.calls[0].sql).not.toMatch(/WHERE/i);
+      expect(client.calls[0].params ?? []).toEqual([]);
+    });
+
+    it('filters on both bounds when both are given', async () => {
+      const client = fakeClient([dbRow]);
+
+      await new PostgresWeatherRepository(client).findRange('2026-01-01', '2026-01-31');
+
+      expect(client.calls[0].sql).toMatch(/date\s*>=\s*\$1/i);
+      expect(client.calls[0].sql).toMatch(/date\s*<=\s*\$2/i);
+      expect(client.calls[0].params).toEqual(['2026-01-01', '2026-01-31']);
+    });
+
+    it('filters from a start date only', async () => {
+      const client = fakeClient([dbRow]);
+
+      await new PostgresWeatherRepository(client).findRange('2026-01-01', null);
+
+      expect(client.calls[0].sql).toMatch(/date\s*>=\s*\$1/i);
+      expect(client.calls[0].sql).not.toMatch(/<=/);
+      expect(client.calls[0].params).toEqual(['2026-01-01']);
+    });
+
+    it('filters to an end date only', async () => {
+      const client = fakeClient([dbRow]);
+
+      await new PostgresWeatherRepository(client).findRange(null, '2026-01-31');
+
+      expect(client.calls[0].sql).toMatch(/date\s*<=\s*\$1/i);
+      expect(client.calls[0].params).toEqual(['2026-01-31']);
+    });
+
+    it('never puts a bound into the SQL text', async () => {
+      const client = fakeClient([dbRow]);
+
+      await new PostgresWeatherRepository(client).findRange('2026-01-01', '2026-01-31');
+
+      expect(client.calls[0].sql).not.toContain('2026-01-01');
+      expect(client.calls[0].sql).not.toContain('2026-01-31');
+    });
+  });
 });

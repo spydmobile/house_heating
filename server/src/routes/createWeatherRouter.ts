@@ -1,6 +1,10 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { calculateMeanTemp, calculateHDD } from '../services/calculations.js';
-import type { WeatherDay, NewWeatherDay } from '../repositories/PostgresWeatherRepository.js';
+import type {
+  WeatherDay,
+  NewWeatherDay,
+  WeatherSummary,
+} from '../repositories/PostgresWeatherRepository.js';
 
 /**
  * Weather HTTP routes.
@@ -9,24 +13,25 @@ import type { WeatherDay, NewWeatherDay } from '../repositories/PostgresWeatherR
  * written by the server from Environment Canada, never queued offline on a
  * phone (see PostgresWeatherRepository).
  *
- * The old sqlite route (weather.ts) supported several things this router
- * does not, each left out rather than reinvented in SQL here because
- * PostgresWeatherRepository has no method that expresses it:
- *   - GET / with no filter, or only `from`, or only `to`. The repository
- *     only exposes findBetween(from, to), so this router requires both
- *     bounds and 400s otherwise.
- *   - GET /summary (avg_temp/min_temp/max_temp). The repository has
- *     totalHdd/countDays but no temperature aggregates, so a correct
- *     summary cannot be built from what exists — left out entirely rather
- *     than shipped partial.
- *   - POST /fetch (Environment Canada pull via weatherFetcher.ts). That
- *     service writes through the old sqlite db directly, not through this
- *     store, and converting it is outside the four files in scope here.
- *   - DELETE /:date. The repository has no deleteByDate (or any delete)
- *     method, so there is nothing to call.
+ * GET / takes OPTIONAL bounds. The client's `getWeather(from?, to?)` builds an
+ * empty query string when called with no arguments, and Dashboard.tsx calls it
+ * that way — so requiring both bounds would 400 the dashboard's weather panel.
+ *
+ * Every date arriving from the query string or the path is validated HERE.
+ * Postgres rejects a malformed date as a type error, which surfaces as a 500
+ * and is then indistinguishable from the database being unreachable. A bad
+ * request should say it is a bad request.
+ *
+ * STILL MISSING, and named rather than quietly dropped: POST /fetch, the
+ * Environment Canada pull. `weatherFetcher.ts` writes through the old sqlite
+ * handle directly rather than through this store, so restoring the endpoint
+ * means converting that service first.
  */
 export interface WeatherStore {
+  findRange(from: string | null, to: string | null): Promise<WeatherDay[]>;
   findBetween(from: string, to: string): Promise<WeatherDay[]>;
+  summary(from: string, to: string): Promise<WeatherSummary>;
+  deleteByDate(date: string): Promise<boolean>;
   save(day: NewWeatherDay): Promise<WeatherDay>;
 }
 
@@ -47,20 +52,75 @@ function asyncRoute(
   };
 }
 
+/**
+ * Strict ISO calendar date. Deliberately rejects '2026-1-1' as well as
+ * 'not-a-date': a single-digit month is ambiguous between formats and Postgres
+ * would silently accept it under some DateStyle settings.
+ */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function isValidDate(value: string): boolean {
+  if (!ISO_DATE.test(value)) return false;
+
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  // Round-trips only if the calendar date actually exists: this is what
+  // rejects 2026-02-30 and 2026-13-01.
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+/** null for absent, undefined for present-but-invalid. */
+function readDateParam(raw: unknown): string | null | undefined {
+  if (raw === undefined || raw === '') return null;
+  if (typeof raw !== 'string') return undefined;
+  return isValidDate(raw) ? raw : undefined;
+}
+
 export function createWeatherRouter({ weather }: WeatherRouterDependencies): Router {
   const router = Router();
 
   router.get(
     '/',
     asyncRoute(async (req, res) => {
-      const { from, to } = req.query;
+      const from = readDateParam(req.query.from);
+      const to = readDateParam(req.query.to);
 
-      if (typeof from !== 'string' || typeof to !== 'string' || from === '' || to === '') {
-        res.status(400).json({ error: 'Both from and to query parameters required' });
+      if (from === undefined || to === undefined) {
+        res
+          .status(400)
+          .json({ error: 'from and to must be ISO dates (YYYY-MM-DD) when provided' });
         return;
       }
 
-      res.json(await weather.findBetween(from, to));
+      res.json(await weather.findRange(from, to));
+    }),
+  );
+
+  /**
+   * Registered BEFORE any parameterised path so the literal 'summary' is not
+   * read as a date.
+   */
+  router.get(
+    '/summary',
+    asyncRoute(async (req, res) => {
+      const from = readDateParam(req.query.from);
+      const to = readDateParam(req.query.to);
+
+      // An aggregate over an unbounded range is not a summary of anything
+      // useful, so both bounds are required here even though GET / allows none.
+      if (from === undefined || to === undefined || from === null || to === null) {
+        res.status(400).json({
+          error: 'from and to are both required ISO dates (YYYY-MM-DD)',
+        });
+        return;
+      }
+
+      res.json(await weather.summary(from, to));
     }),
   );
 
@@ -101,6 +161,27 @@ export function createWeatherRouter({ weather }: WeatherRouterDependencies): Rou
       });
 
       res.status(201).json(saved);
+    }),
+  );
+
+  router.delete(
+    '/:date',
+    asyncRoute(async (req, res) => {
+      const date = req.params.date;
+
+      if (!isValidDate(date)) {
+        res.status(400).json({ error: 'date must be an ISO date (YYYY-MM-DD)' });
+        return;
+      }
+
+      const removed = await weather.deleteByDate(date);
+
+      if (!removed) {
+        res.status(404).json({ error: 'No weather record for that date' });
+        return;
+      }
+
+      res.status(204).send();
     }),
   );
 

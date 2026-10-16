@@ -28,6 +28,21 @@ function fakeStore(overrides: Partial<WeatherStore> = {}) {
 
   const store: WeatherStore & { saved: NewWeatherDay[] } = {
     saved,
+    async findRange(_from: string | null, _to: string | null) {
+      return [existing];
+    },
+    async summary(_from: string, _to: string) {
+      return {
+        avgMeanTemp: -13.4,
+        minTemp: -34.2,
+        maxTemp: 4.1,
+        totalHdd: 981.2,
+        dayCount: 28,
+      };
+    },
+    async deleteByDate(date: string) {
+      return date === existing.date;
+    },
     async findBetween(_from: string, _to: string) {
       return [existing];
     },
@@ -61,25 +76,50 @@ describe('weather router', () => {
     });
 
     /**
-     * PostgresWeatherRepository only exposes findBetween(from, to) — there is
-     * no "list everything" or one-sided-filter method, so unlike the old
-     * sqlite route this endpoint requires both bounds rather than building a
-     * fresh SQL string here.
+     * REVISED 2026-10-16, with Franco's approval, and the reason matters.
+     *
+     * These three cases previously asserted a 400 — the first conversion pass
+     * required both bounds, because the repository then exposed only
+     * findBetween(from, to) and inventing SQL in the route was correctly
+     * refused.
+     *
+     * That requirement was a LIVE REGRESSION, not a conservative choice. The
+     * client's `getWeather(from?, to?)` builds an empty query string when
+     * called with no arguments, and `Dashboard.tsx` calls it exactly that way,
+     * so mandatory bounds would 400 the dashboard's weather panel.
+     *
+     * The repository now has `findRange` with optional bounds, so all four
+     * shapes are valid requests. A MALFORMED bound is still a 400 — see
+     * createWeatherRouter.restored.test.ts, which covers that and the rest of
+     * the restored surface.
      */
-    it('400s when from is missing', async () => {
-      const response = await request(appWith(fakeStore())).get('/api/weather?to=2025-12-31');
-
-      expect(response.status).toBe(400);
-    });
-
-    it('400s when to is missing', async () => {
-      const response = await request(appWith(fakeStore())).get('/api/weather?from=2025-12-01');
-
-      expect(response.status).toBe(400);
-    });
-
-    it('400s when both are missing', async () => {
+    it('returns every day when no bounds are given, as the dashboard requests it', async () => {
       const response = await request(appWith(fakeStore())).get('/api/weather');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveLength(1);
+    });
+
+    it('accepts an end bound alone', async () => {
+      const response = await request(appWith(fakeStore())).get(
+        '/api/weather?to=2025-12-31',
+      );
+
+      expect(response.status).toBe(200);
+    });
+
+    it('accepts a start bound alone', async () => {
+      const response = await request(appWith(fakeStore())).get(
+        '/api/weather?from=2025-12-01',
+      );
+
+      expect(response.status).toBe(200);
+    });
+
+    it('still rejects a malformed bound', async () => {
+      const response = await request(appWith(fakeStore())).get(
+        '/api/weather?from=not-a-date',
+      );
 
       expect(response.status).toBe(400);
     });
@@ -137,6 +177,15 @@ describe('weather router', () => {
    */
   describe('store failure', () => {
     const exploding = {
+      async findRange(): Promise<WeatherDay[]> {
+        throw new Error('connection terminated unexpectedly');
+      },
+      async summary(): Promise<never> {
+        throw new Error('connection terminated unexpectedly');
+      },
+      async deleteByDate(): Promise<boolean> {
+        throw new Error('connection terminated unexpectedly');
+      },
       async findBetween(): Promise<WeatherDay[]> {
         throw new Error('connection terminated unexpectedly');
       },
