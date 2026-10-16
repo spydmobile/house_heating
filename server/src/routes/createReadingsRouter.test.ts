@@ -36,6 +36,9 @@ function fakeStore(overrides: Partial<GaugeReadingStore> = {}) {
       saved.push(reading);
       return { ...existing, ...reading, id: existing.id } as GaugeReading;
     },
+    async update(id: number, edit: { date: string; gaugePercent: number; notes: string | null }) {
+      return id === existing.id ? ({ ...existing, ...edit } as GaugeReading) : null;
+    },
     async deleteById(id: number) {
       return id === existing.id;
     },
@@ -48,7 +51,16 @@ function fakeStore(overrides: Partial<GaugeReadingStore> = {}) {
 function appWith(store: GaugeReadingStore) {
   const app = express();
   app.use(express.json());
-  app.use('/api/readings', createReadingsRouter({ readings: store }));
+  // The enrichment on GET / spans readings and weather, so the router now takes
+  // a narrow weather port too. These tests are about the readings contract, so
+  // the period lookup reports no weather data.
+  app.use(
+    '/api/readings',
+    createReadingsRouter({
+      readings: store,
+      weather: { async hddForPeriod() { return null; } },
+    }),
+  );
   return app;
 }
 
@@ -167,6 +179,9 @@ describe('readings router', () => {
         throw new Error('connection terminated unexpectedly');
       },
       async save(): Promise<GaugeReading> {
+        throw new Error('connection terminated unexpectedly');
+      },
+      async update(): Promise<GaugeReading | null> {
         throw new Error('connection terminated unexpectedly');
       },
       async deleteById(): Promise<boolean> {
