@@ -13,17 +13,31 @@
 
 export interface ServerConfig {
   port: string;
+  database: {
+    password: string;
+  };
 }
 
-export function loadServerConfig(env: Record<string, string | undefined>): ServerConfig {
-  const port = env.PORT;
+type Env = Record<string, string | undefined>;
 
-  if (!port) {
+function required(env: Env, name: string): string {
+  const value = env[name];
+
+  if (!value) {
     throw new Error(
-      'Required environment variable PORT is not set. ' +
-        'Set it explicitly — this server has no default port.',
+      `Required environment variable ${name} is not set. ` +
+        'Set it explicitly — this server has no defaults for required configuration.',
     );
   }
 
-  return { port };
+  return value;
+}
+
+export function loadServerConfig(env: Env): ServerConfig {
+  return {
+    port: required(env, 'PORT'),
+    database: {
+      password: required(env, 'HOUSE_HEATING_PASSWORD'),
+    },
+  };
 }
