@@ -29,6 +29,10 @@ import { loadServerConfig } from './loadServerConfig';
 function validEnv(): Record<string, string> {
   return {
     PORT: '3008',
+    DB_HOST: 'postgres',
+    DB_PORT: '5432',
+    DB_NAME: 'house_heating',
+    DB_USER: 'house_heating',
     HOUSE_HEATING_PASSWORD: 'test-password-not-a-real-credential',
   };
 }
@@ -50,6 +54,10 @@ describe('loadServerConfig', () => {
     const config = loadServerConfig(validEnv());
 
     expect(config.port).toBe('3008');
+    expect(config.database.host).toBe('postgres');
+    expect(config.database.port).toBe('5432');
+    expect(config.database.name).toBe('house_heating');
+    expect(config.database.user).toBe('house_heating');
     expect(config.database.password).toBe('test-password-not-a-real-credential');
   });
 
@@ -69,6 +77,22 @@ describe('loadServerConfig', () => {
       /HOUSE_HEATING_PASSWORD/,
     );
   });
+
+  /**
+   * The remaining connection parameters. These are deployment facts, not app
+   * constants: the host is a compose service name on the `symbiosis` network,
+   * and hard-coding any of them would mean the container could only ever run in
+   * one place. Required, with no default, for the same reason as the password —
+   * a default host is how a service quietly connects to the wrong database.
+   */
+  it.each(['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER'])(
+    'throws, naming %s, when it is absent',
+    (name) => {
+      expect(() => loadServerConfig(envWithout(name))).toThrowError(
+        new RegExp(name),
+      );
+    },
+  );
 
   /**
    * An empty string is absence wearing a disguise. `PORT=` in a compose file or

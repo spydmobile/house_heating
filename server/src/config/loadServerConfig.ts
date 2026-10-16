@@ -14,6 +14,10 @@
 export interface ServerConfig {
   port: string;
   database: {
+    host: string;
+    port: string;
+    name: string;
+    user: string;
     password: string;
   };
 }
@@ -37,6 +41,10 @@ export function loadServerConfig(env: Env): ServerConfig {
   return {
     port: required(env, 'PORT'),
     database: {
+      host: required(env, 'DB_HOST'),
+      port: required(env, 'DB_PORT'),
+      name: required(env, 'DB_NAME'),
+      user: required(env, 'DB_USER'),
       password: required(env, 'HOUSE_HEATING_PASSWORD'),
     },
   };
