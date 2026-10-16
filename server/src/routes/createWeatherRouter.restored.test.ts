@@ -205,6 +205,105 @@ describe('weather router — restored endpoints', () => {
     });
   });
 
+  describe('POST /fetch', () => {
+    function appWithFetcher(fetchRange: (from: string, to: string) => Promise<unknown>) {
+      const app = express();
+      app.use(express.json());
+      app.use(
+        '/api/weather',
+        createWeatherRouter({
+          weather: fakeStore(),
+          fetcher: { fetchRange: fetchRange as never },
+        }),
+      );
+      return app;
+    }
+
+    const ok = async () => ({ fetched: 2, skipped: 0, errors: [], data: [] });
+
+    it('triggers a range fetch and returns its result', async () => {
+      const response = await request(appWithFetcher(ok))
+        .post('/api/weather/fetch')
+        .send({ from: '2026-01-12', to: '2026-01-13' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.fetched).toBe(2);
+    });
+
+    it('passes the bounds through', async () => {
+      const asked: string[][] = [];
+
+      await request(
+        appWithFetcher(async (from, to) => {
+          asked.push([from, to]);
+          return { fetched: 0, skipped: 0, errors: [], data: [] };
+        }),
+      )
+        .post('/api/weather/fetch')
+        .send({ from: '2026-01-12', to: '2026-01-13' });
+
+      expect(asked).toEqual([['2026-01-12', '2026-01-13']]);
+    });
+
+    it.each([
+      ['both missing', {}],
+      ['from missing', { to: '2026-01-13' }],
+      ['to missing', { from: '2026-01-12' }],
+      ['from malformed', { from: 'yesterday', to: '2026-01-13' }],
+    ])('400s when %s', async (_case, body) => {
+      const response = await request(appWithFetcher(ok))
+        .post('/api/weather/fetch')
+        .send(body);
+
+      expect(response.status).toBe(400);
+    });
+
+    /**
+     * An inverted range throws from the fetcher. It is a bad request, not a
+     * server fault, so it must not surface as a 500.
+     */
+    it('400s an inverted range rather than reporting a server error', async () => {
+      const response = await request(
+        appWithFetcher(async () => {
+          throw new Error('Inverted range: from 2026-01-14 is after to 2026-01-12');
+        }),
+      )
+        .post('/api/weather/fetch')
+        .send({ from: '2026-01-14', to: '2026-01-12' });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('returns 500 rather than hanging when the fetch fails outright', async () => {
+      const response = await request(
+        appWithFetcher(async () => {
+          throw new Error('connection terminated unexpectedly');
+        }),
+      )
+        .post('/api/weather/fetch')
+        .send({ from: '2026-01-12', to: '2026-01-13' });
+
+      expect(response.status).toBe(500);
+    });
+
+    /**
+     * The endpoint must still exist and behave when no fetcher is wired in —
+     * reporting that the capability is absent, rather than throwing a
+     * TypeError that surfaces as a 500.
+     */
+    it('503s when no fetcher is configured', async () => {
+      const app = express();
+      app.use(express.json());
+      app.use('/api/weather', createWeatherRouter({ weather: fakeStore() }));
+
+      const response = await request(app)
+        .post('/api/weather/fetch')
+        .send({ from: '2026-01-12', to: '2026-01-13' });
+
+      expect(response.status).toBe(503);
+    });
+  });
+
   describe('store failure', () => {
     it('returns 500 rather than hanging when a range query fails', async () => {
       const response = await request(

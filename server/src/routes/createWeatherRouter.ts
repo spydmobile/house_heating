@@ -22,10 +22,15 @@ import type {
  * and is then indistinguishable from the database being unreachable. A bad
  * request should say it is a bad request.
  *
- * STILL MISSING, and named rather than quietly dropped: POST /fetch, the
- * Environment Canada pull. `weatherFetcher.ts` writes through the old sqlite
- * handle directly rather than through this store, so restoring the endpoint
- * means converting that service first.
+ * POST /fetch triggers the Environment Canada pull. The fetcher is OPTIONAL in
+ * the dependencies: without one the endpoint answers 503 — the capability is
+ * absent — rather than throwing a TypeError that would surface as a 500 and
+ * read as a server fault.
+ *
+ * Worth knowing about that endpoint: the MSC Datamart path it uses is a ROLLING
+ * "yesterday" file, not an archive, so it can only reach back a few days
+ * whatever range is requested. It takes a range and that reads like a backfill;
+ * it is not one.
  */
 export interface WeatherStore {
   findRange(from: string | null, to: string | null): Promise<WeatherDay[]>;
@@ -35,8 +40,18 @@ export interface WeatherStore {
   save(day: NewWeatherDay): Promise<WeatherDay>;
 }
 
+/** Narrow port: the one thing POST /fetch needs. */
+export interface WeatherFetcher {
+  fetchRange(
+    from: string,
+    to: string,
+  ): Promise<{ fetched: number; skipped: number; errors: string[] }>;
+}
+
 export interface WeatherRouterDependencies {
   weather: WeatherStore;
+  /** Absent means POST /fetch reports the capability as unavailable. */
+  fetcher?: WeatherFetcher;
 }
 
 /**
@@ -81,7 +96,10 @@ function readDateParam(raw: unknown): string | null | undefined {
   return isValidDate(raw) ? raw : undefined;
 }
 
-export function createWeatherRouter({ weather }: WeatherRouterDependencies): Router {
+export function createWeatherRouter({
+  weather,
+  fetcher,
+}: WeatherRouterDependencies): Router {
   const router = Router();
 
   router.get(
@@ -161,6 +179,48 @@ export function createWeatherRouter({ weather }: WeatherRouterDependencies): Rou
       });
 
       res.status(201).json(saved);
+    }),
+  );
+
+  /**
+   * Registered before the parameterised DELETE for the same reason /summary is:
+   * a literal path must not be read as a date.
+   */
+  router.post(
+    '/fetch',
+    asyncRoute(async (req, res) => {
+      if (!fetcher) {
+        res.status(503).json({
+          error: 'Weather fetching is not configured on this server',
+        });
+        return;
+      }
+
+      const from = readDateParam(req.body?.from);
+      const to = readDateParam(req.body?.to);
+
+      if (from === undefined || to === undefined || from === null || to === null) {
+        res
+          .status(400)
+          .json({ error: 'from and to are both required ISO dates (YYYY-MM-DD)' });
+        return;
+      }
+
+      try {
+        res.json(await fetcher.fetchRange(from, to));
+      } catch (error) {
+        // An inverted range is a BAD REQUEST, not a server fault. The fetcher
+        // throws for it deliberately — rather than reporting a successful fetch
+        // of zero days — so it is translated here instead of becoming a 500.
+        const message = error instanceof Error ? error.message : String(error);
+
+        if (/inverted range/i.test(message)) {
+          res.status(400).json({ error: message });
+          return;
+        }
+
+        throw error;
+      }
     }),
   );
 
