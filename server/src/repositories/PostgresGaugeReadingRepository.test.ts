@@ -69,6 +69,49 @@ describe('PostgresGaugeReadingRepository', () => {
     expect(await repo.findById(404)).toBeNull();
   });
 
+  /**
+   * `save` upserts on client_uuid, which is the OFFLINE path. Editing an
+   * existing reading by id is a different act — correcting a typo in a reading
+   * already stored — and must not be expressed as an upsert, because a reading
+   * imported from SQLite has a NULL client_uuid and every such row would
+   * collide on it.
+   */
+  describe('update', () => {
+    it('updates by id and binds the id as the last parameter', async () => {
+      const client = fakeClient([dbRow]);
+      const repo = new PostgresGaugeReadingRepository(client);
+
+      await repo.update(3, { date: '2025-12-30', gaugePercent: 84, notes: 'corrected' });
+
+      const [call] = client.calls;
+
+      expect(call.sql).toMatch(/UPDATE gauge_readings/i);
+      expect(call.sql).toMatch(/WHERE id = \$4/i);
+      expect(call.sql).toMatch(/RETURNING/i);
+      expect(call.params).toEqual(['2025-12-30', 84, 'corrected', 3]);
+    });
+
+    it('does not touch client_uuid, which identifies the original offline submission', async () => {
+      const client = fakeClient([dbRow]);
+
+      await new PostgresGaugeReadingRepository(client).update(3, {
+        date: '2025-12-30',
+        gaugePercent: 84,
+        notes: null,
+      });
+
+      expect(client.calls[0].sql).not.toMatch(/client_uuid\s*=/i);
+    });
+
+    it('returns null when no row has that id rather than reporting a phantom success', async () => {
+      const repo = new PostgresGaugeReadingRepository(fakeClient([]));
+
+      expect(
+        await repo.update(999, { date: '2025-12-30', gaugePercent: 84, notes: null }),
+      ).toBeNull();
+    });
+  });
+
   it('reports whether a delete actually removed a row', async () => {
     expect(await new PostgresGaugeReadingRepository(fakeClient([])).deleteById(1)).toBe(
       false,

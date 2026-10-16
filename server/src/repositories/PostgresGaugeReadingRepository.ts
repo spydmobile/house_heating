@@ -22,6 +22,13 @@ export interface GaugeReading {
   createdAt: string;
 }
 
+/** Fields an edit may change. `client_uuid` is deliberately absent. */
+export interface GaugeReadingEdit {
+  date: string;
+  gaugePercent: number;
+  notes: string | null;
+}
+
 export interface NewGaugeReading {
   clientUuid?: string | null;
   date: string;
@@ -96,6 +103,34 @@ export class PostgresGaugeReadingRepository {
     }
 
     return toRow(result.rows[0]);
+  }
+
+  /**
+   * Edits an existing reading by id — correcting a reading already stored.
+   *
+   * Deliberately NOT expressed as `save`'s upsert. `save` keys on
+   * `client_uuid`, which is the offline-submission identity; readings imported
+   * from the old SQLite database have a NULL client_uuid, and upserting those
+   * would have every one of them collide on the same key.
+   *
+   * `client_uuid` is never written here: it identifies the original submission,
+   * and rewriting it would detach the row from the queued item that created it.
+   *
+   * Returns null when no row has that id, so the caller can 404 rather than
+   * report a success that changed nothing.
+   */
+  async update(id: number, edit: GaugeReadingEdit): Promise<GaugeReading | null> {
+    const result = await this.client.query(
+      `
+      UPDATE gauge_readings
+      SET date = $1, gauge_percent = $2, notes = $3
+      WHERE id = $4
+      RETURNING ${COLUMNS};
+      `,
+      [edit.date, edit.gaugePercent, edit.notes, id],
+    );
+
+    return result.rows.length > 0 ? toRow(result.rows[0]) : null;
   }
 
   async deleteById(id: number): Promise<boolean> {
