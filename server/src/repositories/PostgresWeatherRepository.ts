@@ -25,6 +25,16 @@ export interface WeatherDay {
   createdAt: string;
 }
 
+export interface WeatherSummary {
+  /** null means no data for the range — never 0, which would be a reading. */
+  avgMeanTemp: number | null;
+  minTemp: number | null;
+  maxTemp: number | null;
+  totalHdd: number | null;
+  /** How many days back the aggregates. 0 means they are all null. */
+  dayCount: number;
+}
+
 export interface NewWeatherDay {
   date: string;
   maxTemp: number | null;
@@ -105,6 +115,96 @@ export class PostgresWeatherRepository {
     const { count } = result.rows[0] as { count: string | number };
 
     return Number(count);
+  }
+
+  /** Every recorded day, newest first. */
+  async list(): Promise<WeatherDay[]> {
+    const result = await this.client.query(
+      `SELECT ${COLUMNS} FROM weather_data ORDER BY date DESC;`,
+    );
+
+    return result.rows.map(toRow);
+  }
+
+  /**
+   * Degree days BETWEEN two gauge readings: exclusive of the earlier day,
+   * inclusive of the later one. Without the exclusive bound the boundary day is
+   * counted in both of two adjacent periods.
+   *
+   * Returns NULL for a period with no weather rows — deliberately unlike
+   * `totalHdd`, which returns 0 for an empty range. The caller divides a
+   * consumption figure by this, and dividing by an invented zero is precisely
+   * how a comparison concludes the new windows made the house worse. COUNT is
+   * selected alongside SUM because SUM alone cannot distinguish "no rows" from
+   * "rows that sum to zero".
+   */
+  async hddForPeriod(from: string, to: string): Promise<number | null> {
+    const result = await this.client.query(
+      `
+      SELECT SUM(hdd) AS total, COUNT(*) AS count
+      FROM weather_data
+      WHERE date > $1 AND date <= $2;
+      `,
+      [from, to],
+    );
+
+    const { total, count } = result.rows[0] as {
+      total: string | number | null;
+      count: string | number;
+    };
+
+    if (Number(count) === 0) return null;
+
+    return total === null ? null : Number(total);
+  }
+
+  /**
+   * Temperature aggregates for a range, with the day count that backs them.
+   *
+   * Every aggregate is null for an empty range rather than 0. An average of
+   * 0 °C is entirely plausible in Fort Smith, so a fabricated zero here would
+   * read as a measurement and not as missing data.
+   */
+  async summary(from: string, to: string): Promise<WeatherSummary> {
+    const result = await this.client.query(
+      `
+      SELECT
+        AVG(mean_temp) AS avg_mean_temp,
+        MIN(min_temp)  AS min_temp,
+        MAX(max_temp)  AS max_temp,
+        SUM(hdd)       AS total_hdd,
+        COUNT(*)       AS day_count
+      FROM weather_data
+      WHERE date BETWEEN $1 AND $2;
+      `,
+      [from, to],
+    );
+
+    const row = result.rows[0] as {
+      avg_mean_temp: string | number | null;
+      min_temp: string | number | null;
+      max_temp: string | number | null;
+      total_hdd: string | number | null;
+      day_count: string | number;
+    };
+
+    return {
+      avgMeanTemp: toNullableNumber(row.avg_mean_temp),
+      minTemp: toNullableNumber(row.min_temp),
+      maxTemp: toNullableNumber(row.max_temp),
+      totalHdd: toNullableNumber(row.total_hdd),
+      dayCount: Number(row.day_count),
+    };
+  }
+
+  /** True only if a row was actually removed. */
+  async deleteByDate(date: string): Promise<boolean> {
+    const result = await this.client.query(
+      'DELETE FROM weather_data WHERE date = $1 RETURNING date;',
+      [date],
+    );
+
+    return result.rows.length > 0;
   }
 
   async save(day: NewWeatherDay): Promise<WeatherDay> {
