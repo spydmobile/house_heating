@@ -10,9 +10,17 @@ import type {
   HvacEfficiencyAnalysis,
 } from '../types';
 
-// __API_PORT__ injected by vite.config.ts from .env PORT
+import { resolveApiBase } from './resolveApiBase';
+
+// Injected by vite.config.ts. __API_PORT__ is empty in production, where the
+// server serves the client and the API from one origin.
 declare const __API_PORT__: string;
-const API_BASE = `http://localhost:${__API_PORT__}/api`;
+declare const __IS_PRODUCTION__: boolean;
+
+const API_BASE = resolveApiBase({
+  isProduction: __IS_PRODUCTION__,
+  apiPort: __API_PORT__,
+});
 
 const api = axios.create({
   baseURL: API_BASE,
