@@ -8,6 +8,7 @@ import {
   typicalHDDByMonth,
 } from '../services/calculations.js';
 import { config } from '../config.js';
+import { measureEfficiency, type EfficiencyPeriod } from '../services/measureEfficiency.js';
 import type { ForecastDay } from '../services/forecastFetcher.js';
 import type { FuelFill } from '../repositories/PostgresFuelFillRepository.js';
 import type { GaugeReading } from '../repositories/PostgresGaugeReadingRepository.js';
@@ -45,6 +46,8 @@ export interface AnalysisFillsStore {
 
 export interface AnalysisReadingsStore {
   latest(): Promise<GaugeReading | null>;
+  /** All readings, date DESC. Needed to build consumption periods. */
+  list(): Promise<GaugeReading[]>;
 }
 
 export interface AnalysisWeatherStore {
@@ -100,6 +103,21 @@ function isValidDate(value: string): boolean {
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Whole days between two YYYY-MM-DD dates, in UTC. Fort Smith observes DST, so
+ * local-time parsing yields 23- and 25-hour days twice a year, and a rounded
+ * difference across one of those boundaries lands a day out — which would shift
+ * the denominator of a consumption rate.
+ */
+function daysBetween(fromDate: string, toDate: string): number {
+  const [fy, fm, fd] = fromDate.split('-').map(Number);
+  const [ty, tm, td] = toDate.split('-').map(Number);
+
+  return Math.round(
+    (Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000,
+  );
+}
 
 function round(value: number, places: number): number {
   const factor = 10 ** places;
@@ -263,8 +281,93 @@ export function createAnalysisRouter({
       const readingLiters = estimateLiters(latestReading.gaugePercent);
       const todayStr = new Date().toISOString().split('T')[0];
 
-      // Use measured efficiency or fall back to post-window-upgrade estimate
-      const efficiency = 0.4; // TODO: calculate measured efficiency from complete fill cycles
+      /*
+       * MEASURED, or nothing. This used to be `const efficiency = 0.4` with a
+       * TODO beside it — in a file that records 0.191 L/HDD as the old-windows
+       * baseline, so every refill date came from a number more than double the
+       * project's own figure.
+       *
+       * A period counts only if it is complete in both senses: no fill inside
+       * it, and weather for every one of its days. Incomplete weather INFLATES
+       * the ratio, because the litres consumed are real while the degree days
+       * are undercounted — and that inflated number would then drive the
+       * prediction.
+       *
+       * Franco's ruling, 2026-10-20: refuse to predict and say why.
+       */
+      const allReadings = await readings.list();
+      const periods: EfficiencyPeriod[] = [];
+
+      for (let index = 0; index < allReadings.length - 1; index += 1) {
+        const current = allReadings[index];
+        const previous = allReadings[index + 1];
+
+        const [weatherForPeriod, fillsInPeriod] = await Promise.all([
+          weather.hddBetweenExclusive(previous.date, current.date),
+          fills.between(previous.date, current.date),
+        ]);
+
+        const litersUsed =
+          estimateLiters(previous.gaugePercent) - estimateLiters(current.gaugePercent);
+
+        periods.push({
+          from: previous.date,
+          to: current.date,
+          days: daysBetween(previous.date, current.date),
+          // A gauge that rose means a fill; consumption is unknown, not negative.
+          litersUsed: litersUsed < 0 ? null : litersUsed,
+          hdd: weatherForPeriod.totalHdd,
+          weatherDays: weatherForPeriod.days,
+          hadFill: fillsInPeriod.count > 0,
+        });
+      }
+
+      const measured = measureEfficiency(periods);
+
+      const efficiencyReport = {
+        measured: measured.litersPerHdd === null ? null : round(measured.litersPerHdd, 3),
+        used: measured.litersPerHdd === null ? null : round(measured.litersPerHdd, 3),
+        source:
+          measured.litersPerHdd === null
+            ? 'unavailable'
+            : 'measured from complete consumption periods',
+        reason: measured.reason,
+        qualifying_periods: measured.qualifyingPeriods,
+        total_liters: round(measured.totalLiters, 1),
+        total_hdd: round(measured.totalHdd, 1),
+        total_days: measured.totalDays,
+        from: measured.from,
+        to: measured.to,
+        excluded: measured.excluded,
+      };
+
+      /*
+       * REFUSE. Everything below this point is efficiency-driven, so producing
+       * any of it would mean inventing the input. The observed tank level is
+       * still reported — it is measured, not derived.
+       */
+      if (measured.litersPerHdd === null) {
+        const observedLiters = Math.min(
+          Math.max(0, readingLiters),
+          config.tankCapacity,
+        );
+
+        res.json({
+          current_tank: {
+            liters: Math.round(observedLiters),
+            percent: Math.round((observedLiters / config.tankCapacity) * 100),
+            as_of: latestReading.date,
+          },
+          efficiency: efficiencyReport,
+          forecast_based_prediction: null,
+          forecast: null,
+          scenarios: [],
+          typical_hdd_by_month: typicalHDDByMonth,
+        });
+        return;
+      }
+
+      const efficiency = measured.litersPerHdd;
 
       let currentLiters = readingLiters;
 
@@ -372,11 +475,7 @@ export function createAnalysisRouter({
           percent: Math.round((currentLiters / config.tankCapacity) * 100),
           as_of: latestReading.date,
         },
-        efficiency: {
-          measured: null,
-          used: round(efficiency, 3),
-          source: 'estimated (post-window upgrade)',
-        },
+        efficiency: efficiencyReport,
         forecast_based_prediction: {
           days_until_refill: daysUntilRefill,
           estimated_refill_date: refillDate.toISOString().split('T')[0],

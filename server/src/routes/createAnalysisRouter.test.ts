@@ -55,6 +55,11 @@ function fakeFills(overrides: Partial<AnalysisFillsStore> = {}): AnalysisFillsSt
 function fakeReadings(overrides: Partial<AnalysisReadingsStore> = {}): AnalysisReadingsStore {
   return {
     latest: async () => reading,
+    // Added when AnalysisReadingsStore gained list(): /predictions builds
+    // consumption periods from consecutive readings now, instead of running on
+    // a hardcoded efficiency. A single reading forms no period, so these tests
+    // exercise the refusal path — which is the intended behaviour, not a gap.
+    list: async () => [reading],
     ...overrides,
   };
 }
@@ -151,7 +156,32 @@ describe('analysis router', () => {
     });
   });
 
-  describe('GET /predictions', () => {
+  /**
+ * A qualifying consumption period: two readings a fortnight apart, with weather
+ * for every day of it and no fill inside.
+ *
+ * /predictions now measures efficiency from periods like this rather than
+ * running on a hardcoded 0.4, and REFUSES when none qualifies. The two forecast
+ * tests below are about forecast handling, not about efficiency, so they are
+ * given a period that qualifies — their assertions are unchanged.
+ */
+const olderReading: GaugeReading = {
+  id: 0,
+  clientUuid: null,
+  date: '2026-01-01',
+  gaugePercent: 60,
+  notes: null,
+  createdAt: '2026-01-01T00:00:00.000Z',
+};
+
+const qualifyingPeriod = {
+  readings: fakeReadings({ list: async () => [reading, olderReading] }),
+  weather: fakeWeather({
+    hddBetweenExclusive: async () => ({ totalHdd: 500, days: 14 }),
+  }),
+};
+
+describe('GET /predictions', () => {
     it('reports no readings rather than throwing', async () => {
       const response = await request(
         appWith({ readings: fakeReadings({ latest: async () => null }) }),
@@ -164,6 +194,7 @@ describe('analysis router', () => {
     it('falls back to typical HDD scenarios when the forecast fetch fails', async () => {
       const response = await request(
         appWith({
+          ...qualifyingPeriod,
           forecast: fakeForecast({
             fetchForecast: async () => {
               throw new Error('network unreachable');
@@ -180,6 +211,7 @@ describe('analysis router', () => {
     it('includes the forecast when the fetch succeeds', async () => {
       const response = await request(
         appWith({
+          ...qualifyingPeriod,
           forecast: fakeForecast({
             fetchForecast: async () => ({
               forecast: [{ date: '2026-02-01', max_temp: -10, min_temp: -20, mean_temp: -15, hdd: 33 }],
