@@ -185,8 +185,30 @@ export function createAnalysisRouter({
         }
       }
 
-      // Use recent efficiency or fall back to typical
-      const efficiency = efficiencySinceFill || 0.4; // Default to 0.4 L/HDD
+      /*
+       * MEASURED, or no projection at all.
+       *
+       * This was `efficiencySinceFill || 0.4`, so whenever recent efficiency
+       * could not be measured — which is most of the time, given the holes in
+       * the weather series — the forward projection ran on a constant more than
+       * double the project's own 0.191 baseline, and reported it back as
+       * `efficiency_used` as though it had been measured.
+       *
+       * Franco's ruling, 2026-10-20: refuse to predict and say why. The gauge
+       * reading below is OBSERVED and is still reported; only what is DERIVED
+       * from an efficiency we do not have is withheld.
+       */
+      const efficiency: number | null =
+        efficiencySinceFill !== null && efficiencySinceFill > 0
+          ? efficiencySinceFill
+          : null;
+
+      const projectionReason =
+        efficiency === null
+          ? 'no measurable recent efficiency — consumption since the last fill ' +
+            'could not be divided by recorded degree days, so projecting the ' +
+            'tank forward would require assuming a rate'
+          : null;
 
       // PROJECT CURRENT LEVEL: weather since the reading, plus any fills that
       // occurred after it.
@@ -212,8 +234,13 @@ export function createAnalysisRouter({
         if (weatherSinceReading.totalHdd) {
           hddSinceReading = weatherSinceReading.totalHdd;
           daysSinceReading = weatherSinceReading.days;
-          consumptionSinceReading = efficiency * hddSinceReading;
-          projectedLiters = Math.max(0, projectedLiters - consumptionSinceReading);
+
+          // Only consumable with a measured rate. Degree days alone do not
+          // tell you how much oil was burned.
+          if (efficiency !== null) {
+            consumptionSinceReading = efficiency * hddSinceReading;
+            projectedLiters = Math.max(0, projectedLiters - consumptionSinceReading);
+          }
         }
       }
 
@@ -223,24 +250,46 @@ export function createAnalysisRouter({
       const currentMonth = new Date().getMonth() + 1;
       const typicalHDD = getTypicalHDDForMonth(currentMonth);
 
-      const daysUntilRefill = predictDaysUntilRefill(projectedLiters, efficiency, typicalHDD);
-      const refillDate = predictRefillDate(new Date(), projectedLiters, efficiency, typicalHDD);
+      // Every field below is efficiency-driven, so without a measured rate
+      // there is nothing honest to put in them.
+      const prediction =
+        efficiency === null
+          ? null
+          : {
+              days_until_refill: Math.round(
+                predictDaysUntilRefill(projectedLiters, efficiency, typicalHDD),
+              ),
+              estimated_refill_date: predictRefillDate(
+                new Date(),
+                projectedLiters,
+                efficiency,
+                typicalHDD,
+              )
+                .toISOString()
+                .split('T')[0],
+              assumed_hdd_per_day: typicalHDD,
+              assumed_efficiency: round(efficiency, 3),
+            };
 
       res.json({
         tank: {
           reading_liters: Math.round(readingLiters),
           reading_percent: latestReading.gaugePercent,
           reading_date: latestReading.date,
-          current_liters: Math.round(projectedLiters),
-          current_percent: Math.round(projectedPercent),
+          // null, not the unprojected reading: reporting the raw reading as
+          // "current" would present a stale figure as a present-day one.
+          current_liters: efficiency === null ? null : Math.round(projectedLiters),
+          current_percent: efficiency === null ? null : Math.round(projectedPercent),
           capacity: config.tankCapacity,
           projection: {
-            hdd_since_reading: hddSinceReading ? round(hddSinceReading, 1) : null,
-            consumption_since_reading: consumptionSinceReading
-              ? round(consumptionSinceReading, 1)
-              : null,
+            hdd_since_reading: hddSinceReading === null ? null : round(hddSinceReading, 1),
+            consumption_since_reading:
+              consumptionSinceReading === null
+                ? null
+                : round(consumptionSinceReading, 1),
             days_since_reading: daysSinceReading,
-            efficiency_used: round(efficiency, 3),
+            efficiency_used: efficiency === null ? null : round(efficiency, 3),
+            reason: projectionReason,
           },
         },
         consumption: {
@@ -257,12 +306,7 @@ export function createAnalysisRouter({
           current_l_per_hdd: efficiencySinceFill ? round(efficiencySinceFill, 3) : null,
           baseline_q1_2025: 0.191, // Old windows baseline
         },
-        prediction: {
-          days_until_refill: Math.round(daysUntilRefill),
-          estimated_refill_date: refillDate.toISOString().split('T')[0],
-          assumed_hdd_per_day: typicalHDD,
-          assumed_efficiency: round(efficiency, 3),
-        },
+        prediction,
       });
     }),
   );
