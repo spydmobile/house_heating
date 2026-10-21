@@ -240,6 +240,34 @@ describe('PostgresWeatherRepository', () => {
    * query string; this builds the same four shapes with bound parameters
    * instead, so a bound can never become part of the SQL text.
    */
+  describe('latestDate', () => {
+    it('returns the most recent recorded date', async () => {
+      const repo = new PostgresWeatherRepository(
+        fakeClient([{ latest: '2026-02-24' }]),
+      );
+
+      expect(await repo.latestDate()).toBe('2026-02-24');
+    });
+
+    /**
+     * MAX over no rows is NULL, and null here means "no weather at all" — which
+     * the sync treats completely differently from "weather up to date X".
+     */
+    it('returns null when no weather has ever been recorded', async () => {
+      const repo = new PostgresWeatherRepository(fakeClient([{ latest: null }]));
+
+      expect(await repo.latestDate()).toBeNull();
+    });
+
+    it('normalises a Date to an ISO day string', async () => {
+      const repo = new PostgresWeatherRepository(
+        fakeClient([{ latest: new Date(Date.UTC(2026, 1, 24)) }]),
+      );
+
+      expect(await repo.latestDate()).toBe('2026-02-24');
+    });
+  });
+
   describe('findRange', () => {
     it('returns every day when neither bound is given', async () => {
       const client = fakeClient([dbRow]);

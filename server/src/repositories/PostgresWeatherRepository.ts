@@ -117,6 +117,25 @@ export class PostgresWeatherRepository {
     return Number(count);
   }
 
+  /**
+   * The most recent recorded date, or null when nothing has ever been recorded.
+   *
+   * MAX over no rows is NULL, and the sync treats "no weather at all" quite
+   * differently from "weather up to date X" — one triggers a thirty-day
+   * backfill, the other an incremental catch-up.
+   */
+  async latestDate(): Promise<string | null> {
+    const result = await this.client.query(
+      'SELECT MAX(date) AS latest FROM weather_data;',
+    );
+
+    const { latest } = result.rows[0] as { latest: string | Date | null };
+
+    if (latest === null) return null;
+
+    return latest instanceof Date ? latest.toISOString().slice(0, 10) : latest;
+  }
+
   /** Every recorded day, newest first. */
   async list(): Promise<WeatherDay[]> {
     const result = await this.client.query(
