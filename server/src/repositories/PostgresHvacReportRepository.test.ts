@@ -84,6 +84,30 @@ describe('PostgresHvacReportRepository', () => {
     expect(report?.totalRuntimeHours).toBe(327);
   });
 
+  describe('deleteByMonth', () => {
+    it('reports whether a report was actually removed', async () => {
+      expect(
+        await new PostgresHvacReportRepository(fakeClient([])).deleteByMonth(2024, 7),
+      ).toBe(false);
+      expect(
+        await new PostgresHvacReportRepository(fakeClient([{ id: 1 }])).deleteByMonth(
+          2026,
+          1,
+        ),
+      ).toBe(true);
+    });
+
+    it('binds year and month rather than interpolating them', async () => {
+      const client = fakeClient([{ id: 1 }]);
+
+      await new PostgresHvacReportRepository(client).deleteByMonth(2026, 1);
+
+      expect(client.calls[0].params).toEqual([2026, 1]);
+      expect(client.calls[0].sql).toMatch(/DELETE FROM hvac_reports/i);
+      expect(client.calls[0].sql).toMatch(/RETURNING/i);
+    });
+  });
+
   it('returns null for a month with no report rather than undefined', async () => {
     const repo = new PostgresHvacReportRepository(fakeClient([]));
 

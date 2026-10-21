@@ -98,6 +98,16 @@ export class PostgresHvacReportRepository {
     return result.rows.length > 0 ? toRow(result.rows[0]) : null;
   }
 
+  /** True only if a report was actually removed, so the caller can 404. */
+  async deleteByMonth(year: number, month: number): Promise<boolean> {
+    const result = await this.client.query(
+      'DELETE FROM hvac_reports WHERE year = $1 AND month = $2 RETURNING id;',
+      [year, month],
+    );
+
+    return result.rows.length > 0;
+  }
+
   async save(report: NewHvacReport): Promise<HvacReport> {
     const result = await this.client.query(
       `
