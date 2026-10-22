@@ -3,3 +3,10 @@ client/node_modules
 node_modules
 .DS_Store   
 .env
+
+# Build output. Compiled JS must never be tracked: it drifts from source, and a
+# git-based deploy that pulls a stale dist/ serves code nobody wrote. The image
+# builds it from source on target; `npm run build` makes it locally.
+server/dist
+client/dist
+dist
