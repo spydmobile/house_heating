@@ -47,10 +47,20 @@ export interface FlushResult {
 }
 
 export class OfflineQueue {
+  // Explicit fields rather than constructor parameter properties: this client
+  // builds with `erasableSyntaxOnly`, which forbids the shorthand because it
+  // emits runtime code from a type-position annotation. vitest runs through
+  // esbuild and does not enforce it, so the real build is what catches this.
+  private readonly storage: QueueStorage;
+  private readonly newUuid: () => string;
+
   constructor(
-    private readonly storage: QueueStorage,
-    private readonly newUuid: () => string = () => crypto.randomUUID(),
-  ) {}
+    storage: QueueStorage,
+    newUuid: () => string = () => crypto.randomUUID(),
+  ) {
+    this.storage = storage;
+    this.newUuid = newUuid;
+  }
 
   async pending(): Promise<QueuedRequest[]> {
     return this.storage.read();

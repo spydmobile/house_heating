@@ -1,0 +1,36 @@
+# Keeps the build context small and, more importantly, keeps three things OUT
+# of the image entirely.
+
+# 1. THE DATABASE. data/fuel_tracker.db is still tracked in git — the real fuel
+#    record, six fills and a year of HVAC reports. It must never be baked into
+#    an image or shipped to a server as a code artifact. The live data lives in
+#    Postgres; the repo carries schema, never data.
+data/
+
+# 2. SECRETS. The real .env must never enter the build context: anything copied
+#    into a layer is recoverable from the image even if a later layer deletes
+#    it. .env.example is a template and is fine, but is not needed either.
+.env
+.env.*
+!.env.example
+
+# 3. HOST-PLATFORM BINARIES. node_modules built on macOS cannot run on Linux,
+#    and copying them in would shadow the on-target npm ci.
+node_modules
+**/node_modules
+*/dist
+dist
+
+# Everything below is noise that only slows the build and busts layer caches.
+.git
+.gitignore
+.github
+.claude
+Documentation
+*.md
+!README.md
+coverage
+*.log
+.DS_Store
+.vscode
+.idea
