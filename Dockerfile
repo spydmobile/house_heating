@@ -17,7 +17,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1 — build the client
 # ---------------------------------------------------------------------------
-FROM node:22.11-bookworm-slim AS client-build
+FROM node:22.12-bookworm-slim AS client-build
 
 WORKDIR /build/client
 
@@ -42,7 +42,7 @@ RUN npm run build
 # ---------------------------------------------------------------------------
 # Stage 2 — build the server
 # ---------------------------------------------------------------------------
-FROM node:22.11-bookworm-slim AS server-build
+FROM node:22.12-bookworm-slim AS server-build
 
 WORKDIR /build/server
 
@@ -56,7 +56,7 @@ RUN npm run build
 # ---------------------------------------------------------------------------
 # Stage 3 — runtime
 # ---------------------------------------------------------------------------
-FROM node:22.11-bookworm-slim AS runtime
+FROM node:22.12-bookworm-slim AS runtime
 
 # dumb-init so PID 1 forwards SIGTERM properly. Without it, `docker stop` kills
 # the process outright and the server's own shutdown handler — which closes the
