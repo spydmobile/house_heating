@@ -9,8 +9,23 @@
   <link rel="icon"
     href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌡️</text></svg>"
     type="image/svg+xml">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>SpyD Home Heat</title>
+
+  <!-- PWA. The manifest and icons live in public/ so Vite copies them to the
+       dist root UNHASHED: the service worker's scope depends on /sw.js being
+       at the root, and a hashed worker filename breaks the browser's update
+       check. -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#f97316" />
+
+  <!-- iOS ignores the manifest for install behaviour and reads these instead.
+       Without them, Add to Home Screen produces a bookmark that opens Safari
+       chrome rather than a standalone app. -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Home Heat" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 </head>
 
 <body>
