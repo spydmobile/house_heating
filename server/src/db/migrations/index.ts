@@ -1,5 +1,6 @@
 import type { Migration } from './runMigrations';
 import { initialSchema } from './001_initial_schema';
+import { weatherStationProvenance } from './002_weather_station_provenance';
 
 /**
  * The migration registry, in version order.
@@ -10,4 +11,4 @@ import { initialSchema } from './001_initial_schema';
  * a database that already exists; editing it makes the record disagree with the
  * schema and nothing reports the difference.
  */
-export const migrations: Migration[] = [initialSchema];
+export const migrations: Migration[] = [initialSchema, weatherStationProvenance];
