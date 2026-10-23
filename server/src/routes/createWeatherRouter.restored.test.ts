@@ -20,6 +20,9 @@ import type {
 const day: WeatherDay = {
   id: 11,
   date: '2026-01-12',
+  // Added when migration 002 gave weather_data a station column: this day is
+  // one of the four the climate station has no record for.
+  station: 'YSM',
   maxTemp: -9.8,
   minTemp: -17,
   meanTemp: -13.4,

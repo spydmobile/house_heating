@@ -17,6 +17,12 @@ import type { QueryClient } from './QueryClient';
 export interface WeatherDay {
   id: number;
   date: string;
+  /**
+   * Which instrument produced the reading (ZSM | YSM), or NULL when the
+   * provenance was never recorded — true of every row imported from the legacy
+   * SQLite database. Null means "not known" and is never to be guessed at.
+   */
+  station: string | null;
   maxTemp: number | null;
   minTemp: number | null;
   meanTemp: number | null;
@@ -37,6 +43,7 @@ export interface WeatherSummary {
 
 export interface NewWeatherDay {
   date: string;
+  station?: string | null;
   maxTemp: number | null;
   minTemp: number | null;
   meanTemp: number | null;
@@ -47,6 +54,7 @@ export interface NewWeatherDay {
 interface WeatherRow {
   id: number;
   date: string | Date;
+  station: string | null;
   max_temp: number | null;
   min_temp: number | null;
   mean_temp: number | null;
@@ -65,6 +73,7 @@ function toRow(row: unknown): WeatherDay {
   return {
     id: Number(r.id),
     date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : r.date,
+    station: r.station ?? null,
     maxTemp: toNullableNumber(r.max_temp),
     minTemp: toNullableNumber(r.min_temp),
     meanTemp: toNullableNumber(r.mean_temp),
@@ -76,7 +85,7 @@ function toRow(row: unknown): WeatherDay {
 }
 
 const COLUMNS =
-  'id, date, max_temp, min_temp, mean_temp, hdd, source, created_at';
+  'id, date, station, max_temp, min_temp, mean_temp, hdd, source, created_at';
 
 export class PostgresWeatherRepository {
   constructor(private readonly client: QueryClient) {}
@@ -268,9 +277,10 @@ export class PostgresWeatherRepository {
   async save(day: NewWeatherDay): Promise<WeatherDay> {
     const result = await this.client.query(
       `
-      INSERT INTO weather_data (date, max_temp, min_temp, mean_temp, hdd, source)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO weather_data (date, station, max_temp, min_temp, mean_temp, hdd, source)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (date) DO UPDATE SET
+        station   = EXCLUDED.station,
         max_temp  = EXCLUDED.max_temp,
         min_temp  = EXCLUDED.min_temp,
         mean_temp = EXCLUDED.mean_temp,
@@ -278,7 +288,15 @@ export class PostgresWeatherRepository {
         source    = EXCLUDED.source
       RETURNING ${COLUMNS};
       `,
-      [day.date, day.maxTemp, day.minTemp, day.meanTemp, day.hdd, day.source],
+      [
+        day.date,
+        day.station ?? null,
+        day.maxTemp,
+        day.minTemp,
+        day.meanTemp,
+        day.hdd,
+        day.source,
+      ],
     );
 
     if (result.rows.length === 0) {

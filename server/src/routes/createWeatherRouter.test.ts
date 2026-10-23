@@ -15,6 +15,8 @@ import type { WeatherDay, NewWeatherDay } from '../repositories/PostgresWeatherR
 const existing: WeatherDay = {
   id: 1,
   date: '2025-12-23',
+  // Added when migration 002 gave weather_data a station column.
+  station: 'ZSM',
   maxTemp: -18,
   minTemp: -27,
   meanTemp: -22.5,

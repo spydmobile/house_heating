@@ -148,6 +148,66 @@ describe('PostgresWeatherRepository', () => {
     });
   });
 
+  /**
+   * Migration 002 added `station`. Writing a day without it is the defect the
+   * old fetcher had — it accepted ZSM or YSM and recorded 'auto' for both,
+   * discarding the instrument at the moment it was known. They sit at
+   * different coordinates, so an unrecorded mix biases the degree-day
+   * comparison the window ROI is computed from.
+   */
+  describe('station provenance', () => {
+    it('writes the station with the day', async () => {
+      const client = fakeClient([{ ...dbRow, station: 'YSM' }]);
+      const repo = new PostgresWeatherRepository(client);
+
+      const saved = await repo.save({
+        date: '2026-01-12',
+        maxTemp: -9.8,
+        minTemp: -17,
+        meanTemp: -13.4,
+        hdd: 31.4,
+        source: 'climate-archive:YSM',
+        station: 'YSM',
+      });
+
+      expect(client.calls[0].sql).toMatch(/station/i);
+      expect(client.calls[0].params).toContain('YSM');
+      expect(saved.station).toBe('YSM');
+    });
+
+    /**
+     * NULL is the truth for the 109 rows imported from SQLite: their
+     * provenance was never recorded, and inventing one would manufacture a
+     * fact. Null means "not known", which is different from any station.
+     */
+    it('accepts a null station rather than inventing one', async () => {
+      const client = fakeClient([{ ...dbRow, station: null }]);
+      const repo = new PostgresWeatherRepository(client);
+
+      const saved = await repo.save({
+        date: '2026-01-13',
+        maxTemp: null,
+        minTemp: null,
+        meanTemp: null,
+        hdd: null,
+        source: 'manual',
+        station: null,
+      });
+
+      expect(saved.station).toBeNull();
+    });
+
+    it('reads the station back on a range query', async () => {
+      const repo = new PostgresWeatherRepository(
+        fakeClient([{ ...dbRow, station: 'ZSM' }]),
+      );
+
+      const [day] = await repo.findBetween('2026-01-01', '2026-01-31');
+
+      expect(day.station).toBe('ZSM');
+    });
+  });
+
   describe('summary', () => {
     it('reports temperature aggregates with the day count that backs them', async () => {
       const repo = new PostgresWeatherRepository(
