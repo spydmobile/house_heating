@@ -17,6 +17,11 @@ import {
   type LegacyWeatherDay,
   type LegacyHvacReport,
 } from './transformLegacyRows.js';
+import {
+  findShortfalls,
+  describeShortfall,
+  type TableVerification,
+} from './verifyImport.js';
 
 /**
  * ONE-TIME import of the legacy SQLite database into Postgres.
@@ -51,12 +56,6 @@ import {
 const SQLITE_PATH = path.join(__dirname, '../../../../data/fuel_tracker.db');
 
 dotenv.config({ path: path.join(__dirname, '../../../../.env') });
-
-interface TableCount {
-  table: string;
-  sqlite: number;
-  postgres: number;
-}
 
 async function main(): Promise<void> {
   const write = process.argv.includes('--write');
@@ -145,13 +144,20 @@ async function main(): Promise<void> {
       );
     }
 
+    // weather_data is keyed on DATE, not on the legacy id. The weather sync
+    // allocates its own identity ids, so a legacy id means nothing here — on
+    // 2026-10-25 that dropped 31 legacy days whose ids collided with synced
+    // rows holding entirely different dates. `date` is the real key: migration
+    // 001 declares it UNIQUE and PostgresWeatherRepository already upserts on
+    // it. Letting the identity column allocate the id also makes a re-run
+    // self-correcting rather than a second chance to collide.
     for (const day of transformed.weather) {
       await client.query(
-        `INSERT INTO weather_data (id, date, max_temp, min_temp, mean_temp, hdd, source, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-         ON CONFLICT (id) DO NOTHING;`,
+        `INSERT INTO weather_data (date, max_temp, min_temp, mean_temp, hdd, source, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (date) DO NOTHING;`,
         [
-          day.id, day.date, day.maxTemp, day.minTemp, day.meanTemp, day.hdd,
+          day.date, day.maxTemp, day.minTemp, day.meanTemp, day.hdd,
           day.source, day.createdAt,
         ],
       );
@@ -194,36 +200,62 @@ async function main(): Promise<void> {
       );
     }
 
-    // 5. VERIFY BEFORE COMMITTING. A count mismatch rolls the whole thing back.
-    const counts: TableCount[] = [];
+    // 5. VERIFY BEFORE COMMITTING, BY KEY AND NOT BY TOTAL.
+    //
+    //    The original check compared each table's TOTAL row count to the sqlite
+    //    count, and on 2026-10-25 that passed on a real partial import: 78
+    //    imported legacy rows plus 31 pre-existing synced rows equalled the 109
+    //    in sqlite. Both numbers were true; the comparison answered a different
+    //    question than the one it was built for, so ROLLBACK never fired.
+    //
+    //    So each table is now verified on the SAME key its insert conflicts on,
+    //    asking only about the rows this import actually attempted.
+    const verifications: TableVerification[] = [];
 
-    for (const [table, expected] of [
-      ['fuel_fills', transformed.fills.length],
-      ['gauge_readings', transformed.readings.length],
-      ['weather_data', transformed.weather.length],
-      ['hvac_reports', transformed.hvac.length],
-      ['settings', settings.length],
-    ] as [string, number][]) {
-      const result = await client.query(`SELECT COUNT(*)::int AS n FROM ${table};`);
-      counts.push({ table, sqlite: expected, postgres: result.rows[0].n });
+    for (const { table, column, keys } of [
+      { table: 'fuel_fills', column: 'id', keys: transformed.fills.map((r) => r.id) },
+      { table: 'gauge_readings', column: 'id', keys: transformed.readings.map((r) => r.id) },
+      { table: 'weather_data', column: 'date', keys: transformed.weather.map((r) => r.date) },
+      { table: 'hvac_reports', column: 'id', keys: transformed.hvac.map((r) => r.id) },
+      { table: 'settings', column: 'key', keys: settings.map((s) => s.key) },
+    ] as { table: string; column: string; keys: (string | number)[] }[]) {
+      // Compared AS TEXT on both sides deliberately. `pg` parses a DATE column
+      // into a JS Date, whose String() is "Sat Oct 25 2025 ..." and would never
+      // match the legacy 'YYYY-MM-DD'; and a text[] parameter compared against
+      // a date column raises "operator does not exist". `::text` on the column
+      // yields 'YYYY-MM-DD' for a DATE, which is exactly the legacy form.
+      const attempted = keys.map(String);
+
+      const result = await client.query(
+        `SELECT ${column}::text AS key FROM ${table} WHERE ${column}::text = ANY($1::text[]);`,
+        [attempted],
+      );
+
+      verifications.push({
+        table,
+        attempted,
+        present: result.rows.map((r: { key: string }) => r.key),
+      });
     }
 
-    const short = counts.filter((c) => c.postgres < c.sqlite);
+    const shortfalls = findShortfalls(verifications);
 
-    if (short.length > 0) {
+    if (shortfalls.length > 0) {
       await client.query('ROLLBACK');
 
       throw new Error(
-        'Row counts are short after import, rolling back: ' +
-          short.map((c) => `${c.table} ${c.postgres} < ${c.sqlite}`).join(', '),
+        'Rows this import attempted are missing after it ran, rolling back:\n  ' +
+          shortfalls.map(describeShortfall).join('\n  '),
       );
     }
 
     await client.query('COMMIT');
 
     console.log('[import] committed:');
-    for (const c of counts) {
-      console.log(`  ${c.table.padEnd(16)} sqlite ${c.sqlite} -> postgres ${c.postgres}`);
+    for (const v of verifications) {
+      console.log(
+        `  ${v.table.padEnd(16)} attempted ${v.attempted.length} -> present ${v.present.length}`,
+      );
     }
 
     console.log(
