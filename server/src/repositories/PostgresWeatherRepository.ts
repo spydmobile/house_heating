@@ -308,4 +308,37 @@ export class PostgresWeatherRepository {
 
     return toRow(result.rows[0]);
   }
+
+  /**
+   * Inserts a day ONLY if no row exists for that date, and returns whether it
+   * inserted. Used by the backfill, whose job is to fill gaps and never to
+   * rewrite what is present — `save` above is an upsert and would replace it.
+   *
+   * `ON CONFLICT (date) DO NOTHING` returns NO ROW when it skips, and that is
+   * the signal rather than an inconvenience. The same Postgres behaviour caused
+   * a real defect in the offline-fill queue, where a skipped insert read as a
+   * failed one and the client resent forever; here the absence of a row is
+   * exactly the fact being reported, so it is checked for and not thrown on.
+   */
+  async insertIfAbsent(day: NewWeatherDay): Promise<boolean> {
+    const result = await this.client.query(
+      `
+      INSERT INTO weather_data (date, station, max_temp, min_temp, mean_temp, hdd, source)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (date) DO NOTHING
+      RETURNING id;
+      `,
+      [
+        day.date,
+        day.station ?? null,
+        day.maxTemp,
+        day.minTemp,
+        day.meanTemp,
+        day.hdd,
+        day.source,
+      ],
+    );
+
+    return result.rows.length > 0;
+  }
 }

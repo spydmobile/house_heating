@@ -44,7 +44,16 @@ export function printReport(report: BackfillReport, write: boolean): void {
   console.log(`[backfill] ${mode}`);
   console.log(`[backfill] range ${report.from}..${report.to} (${report.expectedDays} days)`);
   console.log(
-    `[backfill] ${write ? 'written' : 'would write'}: ${report.written} of ${report.expectedDays}`,
+    `[backfill] ${write ? 'inserted' : 'would insert'}: ${report.written} of ${report.expectedDays}`,
+  );
+
+  // Said even when it is zero. "0 already present" and silence are different
+  // statements, and the silence is the one that let an overwrite go unnamed.
+  console.log(
+    `[backfill] ${report.skipped.length} day(s) already present, left untouched` +
+      (report.skipped.length > 0 && report.skipped.length <= 10
+        ? `: ${report.skipped.join(', ')}`
+        : ''),
   );
 
   if (report.fromSecondary.length > 0) {
@@ -98,13 +107,23 @@ async function main(): Promise<void> {
       baseUrl: MSC_ARCHIVE_URL,
     });
 
-    // A dry run must reach the archive and refuse to touch the store. Swapping
-    // the store rather than branching inside the backfill keeps ONE code path:
-    // the run that reports is the run that would write. report.written counts
-    // the days either way, so the dry run's number is the real forecast.
+    // A dry run must reach the archive, read the REAL coverage, and write
+    // nothing. Swapping the store rather than branching inside the backfill
+    // keeps one code path through createBackfill.
+    //
+    // The dry store used to accept every day unconditionally, so it reported
+    // "would write 90" for a range Postgres already half held. The comment here
+    // claimed report.written was "the real forecast" — a sentence that happened
+    // to be true, because the write path was an upsert, for a reason the
+    // comment never gave. Both are fixed: the write path inserts if absent, and
+    // the dry store consults the same coverage it would consult.
+    const existing = write
+      ? null
+      : new Set((await repository.findBetween(from, to)).map((d) => d.date));
+
     const weather = write
-      ? { save: (day: BackfillDay) => repository.save(day) }
-      : { save: async (day: BackfillDay) => day };
+      ? { saveIfAbsent: (day: BackfillDay) => repository.insertIfAbsent(day) }
+      : { saveIfAbsent: async (day: BackfillDay) => !existing!.has(day.date) };
 
     const backfill = createBackfill({ archive, weather });
     const report = await backfill.run(from, to);
