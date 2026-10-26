@@ -20,3 +20,20 @@ dist
 data/*.db
 data/*.db-shm
 data/*.db-wal
+#
+# CORRECTION, 2026-10-26. The note above said the file "stays on disk as the
+# untouched source". Both halves were wrong.
+#
+# It did NOT survive branch switching: once the files left the index, moving
+# between commits removed the working copies and the data/ directory with them.
+# Recovered from history -- git show 1bd64df:data/fuel_tracker.db-wal and the
+# .db beside it.
+#
+# And a .db alone was never the source. 30 of the 109 weather days and 2 of the
+# 15 hvac reports live ONLY in fuel_tracker.db-wal; the main file alone reads
+# 79 days. ANY copy of this database is the PAIR or it is incomplete -- and
+# incomplete silently, because an import of 79 rows verifies perfectly against
+# the 79 it attempted.
+#
+# Postgres is authoritative now. If the legacy data is ever needed again, take
+# the .db and the -wal together.
