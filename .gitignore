@@ -10,3 +10,13 @@ node_modules
 server/dist
 client/dist
 dist
+
+# The legacy SQLite database. Postgres has held the authoritative data since
+# the 2026-10-25 import (140 weather days, 6 fills, 7 readings, 15 hvac reports).
+# The file stays on disk as the untouched source it was imported from, and in
+# git history at ed40e68 and earlier, but it is no longer tracked: a tracked
+# database drifts from the real one and invites a future script to read the
+# stale copy and report it as current.
+data/*.db
+data/*.db-shm
+data/*.db-wal
