@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { createFill } from '../services/api';
+import { buildFillPayload } from './buildFillPayload';
 
 interface FuelFillFormProps {
   onSuccess: () => void;
@@ -20,13 +21,9 @@ export function FuelFillForm({ onSuccess }: FuelFillFormProps) {
     setError('');
 
     try {
-      await createFill({
-        date,
-        gauge_percent_before: parseFloat(gaugeBefore),
-        liters_added: parseFloat(litersAdded),
-        price_per_liter: parseFloat(pricePerLiter),
-        notes: notes || undefined,
-      });
+      await createFill(
+        buildFillPayload({ date, gaugeBefore, litersAdded, pricePerLiter, notes }),
+      );
       // Reset form but keep price (likely similar next time)
       setGaugeBefore('');
       setLitersAdded('');
@@ -77,7 +74,7 @@ export function FuelFillForm({ onSuccess }: FuelFillFormProps) {
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Gauge Before Fill (%)
+            Gauge Before Fill (%) <span className="text-gray-400">— optional</span>
           </label>
           <input
             type="number"
@@ -86,10 +83,18 @@ export function FuelFillForm({ onSuccess }: FuelFillFormProps) {
             max="100"
             value={gaugeBefore}
             onChange={(e) => setGaugeBefore(e.target.value)}
-            placeholder="e.g., 25"
+            placeholder="leave blank if not read"
             className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-            required
           />
+          {/*
+            Deliberately NOT required. The gauge is sometimes not read, and when
+            this field was mandatory the only way to file such a delivery was to
+            type 0 — which claims an empty tank. Blank is recorded as unknown.
+          */}
+          <p className="mt-1 text-xs text-gray-500">
+            Leave blank if you did not read the gauge. It will be recorded as
+            unknown rather than as 0%, which would mean an empty tank.
+          </p>
         </div>
 
         <div>

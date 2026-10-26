@@ -87,12 +87,19 @@ export function createFillsRouter({ fills }: FillsRouterDependencies): Router {
         client_uuid: clientUuid,
       } = req.body ?? {};
 
-      // Checked against undefined, NOT for truthiness. A gauge reading of 0 is
-      // a value — it is exactly what the real 2026-02-24 row recorded — and a
-      // falsy check would reject it as missing.
+      // gauge_percent_before is NOT in this list, deliberately. The gauge is
+      // sometimes genuinely not read — the real 2026-02-24 delivery recorded
+      // "Gauge before fill unknown" — and when the column was NOT NULL the only
+      // way to file that fill was to type 0, which asserts an EMPTY TANK. The
+      // schema manufactured a measurement nobody took. Absent now means absent.
+      //
+      // The fill itself is still required to be real: its date, its litres and
+      // its price all happened regardless of whether anyone read the gauge.
+      //
+      // Checked against undefined, NOT for truthiness, because a gauge reading
+      // of 0 remains a legitimate value and a falsy check would reject it.
       const missing = [
         ['date', date],
-        ['gauge_percent_before', gaugePercentBefore],
         ['liters_added', litersAdded],
         ['price_per_liter', pricePerLiter],
       ]
@@ -113,12 +120,18 @@ export function createFillsRouter({ fills }: FillsRouterDependencies): Router {
 
       const cost = calculateFillCost(Number(litersAdded), Number(pricePerLiter));
 
+      // An unknown gauge reading yields an unknown volume. estimateLiters(0)
+      // would be 0 litres before the fill — restating the same fabrication one
+      // column over, and in the column the analysis actually reads.
+      const gaugeUnknown =
+        gaugePercentBefore === undefined || gaugePercentBefore === null || gaugePercentBefore === '';
+
       const saved = await fills.save({
         clientUuid: clientUuid ?? null,
         date,
-        gaugePercentBefore: Number(gaugePercentBefore),
+        gaugePercentBefore: gaugeUnknown ? null : Number(gaugePercentBefore),
         litersAdded: Number(litersAdded),
-        litersBeforeFill: estimateLiters(Number(gaugePercentBefore)),
+        litersBeforeFill: gaugeUnknown ? null : estimateLiters(Number(gaugePercentBefore)),
         pricePerLiter: Number(pricePerLiter),
         discount: cost.discount,
         gst: cost.gst,

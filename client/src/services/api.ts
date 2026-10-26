@@ -34,7 +34,7 @@ export const getFills = () => api.get<FuelFill[]>('/fills').then((res) => res.da
 
 export const createFill = (data: {
   date: string;
-  gauge_percent_before: number;
+  gauge_percent_before?: number;
   liters_added: number;
   price_per_liter: number;
   notes?: string;
