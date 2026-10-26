@@ -85,7 +85,7 @@ describe('createBackfill', () => {
     expect(report.written).toBe(2);
   });
 
-  describe('the fallback station', () => {
+  describe('the secondary station', () => {
     it('asks YSM only for the days ZSM did not have', async () => {
       const archive = fakeArchive({
         ZSM: result([day('2026-01-11', 'ZSM', 30)], ['2026-01-12']),
@@ -114,7 +114,7 @@ describe('createBackfill', () => {
       expect(archive.asked.map((a) => a[0])).toEqual(['ZSM']);
     });
 
-    it('records the fallback days as YSM, so the mix is visible in the data', async () => {
+    it('records the secondary-station days as YSM, so the mix is visible in the data', async () => {
       const archive = fakeArchive({
         ZSM: result([day('2026-01-11', 'ZSM', 30)], ['2026-01-12']),
         YSM: result([day('2026-01-12', 'YSM', 31.4)]),
@@ -126,10 +126,10 @@ describe('createBackfill', () => {
         '2026-01-12',
       );
 
-      const fallback = store.saved.find((d) => d.date === '2026-01-12');
+      const secondary = store.saved.find((d) => d.date === '2026-01-12');
 
-      expect(fallback?.station).toBe('YSM');
-      expect(report.fromFallback).toEqual(['2026-01-12']);
+      expect(secondary?.station).toBe('YSM');
+      expect(report.fromSecondary).toEqual(['2026-01-12']);
     });
   });
 
@@ -172,7 +172,7 @@ describe('createBackfill', () => {
   });
 
   describe('the report it returns', () => {
-    it('counts what was written, what came from the fallback, and what is missing', async () => {
+    it('counts what was written, what came from the secondary station, and what is missing', async () => {
       const archive = fakeArchive({
         ZSM: result(
           [day('2026-01-10', 'ZSM', 30), day('2026-01-11', 'ZSM', 31)],
@@ -187,7 +187,7 @@ describe('createBackfill', () => {
       }).run('2026-01-10', '2026-01-13');
 
       expect(report.written).toBe(3);
-      expect(report.fromFallback).toEqual(['2026-01-12']);
+      expect(report.fromSecondary).toEqual(['2026-01-12']);
       expect(report.missing).toEqual(['2026-01-13']);
     });
 
