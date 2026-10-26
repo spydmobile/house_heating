@@ -149,7 +149,7 @@ describe('createClimateArchive', () => {
       expect(result.days[0].station).toBe('ZSM');
     });
 
-    it('attaches the fallback station code when that is what was asked for', async () => {
+    it('attaches the secondary station code when that is what was asked for', async () => {
       const http = fakeHttp([feature('2026-01-12', -13.4, 31.4)]);
 
       const result = await archive(http).fetchDays('YSM', '2026-01-12', '2026-01-12');

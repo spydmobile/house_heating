@@ -51,7 +51,7 @@ describe('resolveStation', () => {
   /**
    * VERIFIED AGAINST THE LIVE ARCHIVE 2026-10-23. Two active stations carry
    * TC_IDENTIFIER = YSM — 53119 and 54218 — at identical coordinates, and both
-   * return the four fallback days with exactly the recorded values. The
+   * return the four secondary-station days with exactly the recorded values. The
    * three-letter code is therefore a LABEL, not a unique archive key.
    *
    * 53119 is pinned because its daily record (2014-11-06 onward) strictly
@@ -129,7 +129,7 @@ describe('resolveStation', () => {
      * re-derive which station the backfill is built on — and so a day taken
      * from YSM is visibly an exception rather than an equal alternative.
      */
-    it('marks ZSM as the preferred series and YSM as the fallback', () => {
+    it('marks ZSM as the preferred series and YSM as the secondary', () => {
       expect(FORT_SMITH_STATIONS.ZSM.preferred).toBe(true);
       expect(FORT_SMITH_STATIONS.YSM.preferred).toBe(false);
     });

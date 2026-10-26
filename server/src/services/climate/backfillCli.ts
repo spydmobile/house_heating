@@ -47,10 +47,10 @@ export function printReport(report: BackfillReport, write: boolean): void {
     `[backfill] ${write ? 'written' : 'would write'}: ${report.written} of ${report.expectedDays}`,
   );
 
-  if (report.fromFallback.length > 0) {
+  if (report.fromSecondary.length > 0) {
     console.log(
-      `[backfill] ${report.fromFallback.length} day(s) came from YSM because ZSM lacked them: ` +
-        report.fromFallback.join(', '),
+      `[backfill] ${report.fromSecondary.length} day(s) came from YSM because ZSM lacked them: ` +
+        report.fromSecondary.join(', '),
     );
   }
 

@@ -51,7 +51,7 @@ export interface BackfillReport {
   expectedDays: number;
   written: number;
   /** Dates taken from YSM because ZSM had none. Visible, not buried. */
-  fromFallback: string[];
+  fromSecondary: string[];
   /** Dates NEITHER station had. Recorded, never filled in. */
   missing: string[];
   /** Days fetched but not stored. NOT the same as missing. */
@@ -60,7 +60,7 @@ export interface BackfillReport {
 }
 
 const PRIMARY = 'ZSM';
-const FALLBACK = 'YSM';
+const SECONDARY = 'YSM';
 const DAY_MS = 86_400_000;
 
 function daysInRange(from: string, to: string): number {
@@ -79,7 +79,7 @@ export function createBackfill({ archive, weather }: BackfillDependencies) {
       to,
       expectedDays: daysInRange(from, to),
       written: 0,
-      fromFallback: [],
+      fromSecondary: [],
       missing: [],
       errors: [],
       hddDiscrepancies: [],
@@ -93,19 +93,19 @@ export function createBackfill({ archive, weather }: BackfillDependencies) {
 
     const toWrite = [...primary.days];
 
-    // The fallback is consulted ONLY for what the primary lacked, and only
+    // The secondary station is consulted ONLY for what the primary lacked, and only
     // day by day — never as a second sweep of the whole range.
     if (primary.missing.length > 0) {
       for (const date of primary.missing) {
-        const fallback = await archive.fetchDays(FALLBACK, date, date);
+        const secondary = await archive.fetchDays(SECONDARY, date, date);
 
-        report.hddDiscrepancies.push(...fallback.hddDiscrepancies);
+        report.hddDiscrepancies.push(...secondary.hddDiscrepancies);
 
-        const covered = fallback.days.find((d) => d.date === date);
+        const covered = secondary.days.find((d) => d.date === date);
 
         if (covered) {
           toWrite.push(covered);
-          report.fromFallback.push(date);
+          report.fromSecondary.push(date);
         } else {
           // Neither station has it. Recorded and left alone.
           report.missing.push(date);
