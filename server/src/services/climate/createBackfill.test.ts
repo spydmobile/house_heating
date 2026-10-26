@@ -54,14 +54,30 @@ function fakeArchive(
   };
 }
 
-function fakeStore() {
+/**
+ * A store that INSERTS IF ABSENT, which is what Postgres does for this table
+ * via ON CONFLICT (date) DO NOTHING. `saveIfAbsent` returns whether a row was
+ * actually written, so the backfill can tell inserting from skipping — two
+ * different actions that were previously reported as one number.
+ *
+ * `present` seeds dates the store already holds, which is how a partially
+ * covered range is simulated without a database.
+ */
+function fakeStore(present: string[] = []) {
   const saved: { date: string; station: string | null; hdd: number | null }[] = [];
+  const held = new Set(present);
 
   const store: BackfillStore & { saved: typeof saved } = {
     saved,
-    async save(d) {
+    async saveIfAbsent(d) {
+      if (held.has(d.date)) {
+        return false;
+      }
+
+      held.add(d.date);
       saved.push({ date: d.date, station: d.station, hdd: d.hdd });
-      return undefined;
+
+      return true;
     },
   };
 
@@ -226,13 +242,16 @@ describe('createBackfill', () => {
       const report = await createBackfill({
         archive,
         weather: {
-          async save() {
+          async saveIfAbsent(): Promise<boolean> {
             throw new Error('connection terminated unexpectedly');
           },
         },
       }).run('2025-01-01', '2025-01-01');
 
       expect(report.written).toBe(0);
+      // A store that THREW is not a store that skipped. Both leave written at
+      // zero, and only one of them is fixable.
+      expect(report.skipped).toEqual([]);
       expect(report.missing).toEqual([]);
       expect(report.errors.join(' ')).toMatch(/2025-01-01/);
     });
@@ -250,6 +269,80 @@ describe('createBackfill', () => {
           '2025-03-31',
         ),
       ).rejects.toThrow(/503/);
+    });
+  });
+
+  /**
+   * FILLS GAPS. DOES NOT REWRITE WHAT IS PRESENT.
+   *
+   * It used to write through an upsert — ON CONFLICT (date) DO UPDATE — so a
+   * backfill over a partly covered range REPLACED the rows already there with
+   * the archive's values. For Q1 2026 that was 30 of 90 days, silently, while
+   * the report said "written: 90" and named no overwrite.
+   *
+   * Franco's ruling, 2026-10-26: insert missing days only. Improving existing
+   * rows may well be worth doing — the legacy ones carry `auto` with the
+   * station discarded — but that is a decision about the record, not a side
+   * effect of filling gaps.
+   *
+   * Which makes the operation IDEMPOTENT: running it twice writes nothing the
+   * second time.
+   */
+  describe('idempotence', () => {
+    it('skips a day the store already holds instead of overwriting it', async () => {
+      const archive = fakeArchive({
+        ZSM: result([day('2025-01-01', 'ZSM', 43.9), day('2025-01-02', 'ZSM', 48.5)]),
+      });
+
+      const store = fakeStore(['2025-01-01']);
+
+      const report = await createBackfill({ archive, weather: store }).run(
+        '2025-01-01',
+        '2025-01-02',
+      );
+
+      expect(report.written).toBe(1);
+      expect(report.skipped).toEqual(['2025-01-01']);
+      expect(store.saved.map((d) => d.date)).toEqual(['2025-01-02']);
+    });
+
+    it('writes nothing on a second run over the same range', async () => {
+      const archive = fakeArchive({
+        ZSM: result([day('2025-01-01', 'ZSM', 43.9), day('2025-01-02', 'ZSM', 48.5)]),
+      });
+
+      const store = fakeStore();
+      const backfill = createBackfill({ archive, weather: store });
+
+      const first = await backfill.run('2025-01-01', '2025-01-02');
+      const second = await backfill.run('2025-01-01', '2025-01-02');
+
+      expect(first.written).toBe(2);
+      expect(first.skipped).toEqual([]);
+
+      expect(second.written).toBe(0);
+      expect(second.skipped).toEqual(['2025-01-01', '2025-01-02']);
+
+      // The decisive one: the store was touched twice and holds two rows.
+      expect(store.saved).toHaveLength(2);
+    });
+
+    it('counts a skipped day as neither written nor missing', async () => {
+      // A skipped day is PRESENT. Reporting it as missing would send someone
+      // looking for weather that is already there.
+      const archive = fakeArchive({
+        ZSM: result([day('2025-01-01', 'ZSM', 43.9)]),
+      });
+
+      const report = await createBackfill({
+        archive,
+        weather: fakeStore(['2025-01-01']),
+      }).run('2025-01-01', '2025-01-01');
+
+      expect(report.written).toBe(0);
+      expect(report.skipped).toEqual(['2025-01-01']);
+      expect(report.missing).toEqual([]);
+      expect(report.errors).toEqual([]);
     });
   });
 });
