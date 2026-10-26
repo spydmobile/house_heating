@@ -1,9 +1,11 @@
 export interface FuelFill {
   id: number;
   date: string;
-  gauge_percent_before: number;
+  /** NULL when the gauge was not read. 0 is a reading; absent is not. */
+  gauge_percent_before: number | null;
   liters_added: number;
-  liters_before_fill: number;
+  /** NULL whenever the gauge reading is — an unknown gauge gives no volume. */
+  liters_before_fill: number | null;
   price_per_liter: number;
   discount: number;
   gst: number;

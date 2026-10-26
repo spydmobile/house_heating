@@ -21,7 +21,8 @@ export interface FuelFill {
   id: number;
   clientUuid: string | null;
   date: string;
-  gaugePercentBefore: number;
+  /** NULL when the gauge was not read. 0 is a reading; absent is not. */
+  gaugePercentBefore: number | null;
   litersAdded: number;
   litersBeforeFill: number | null;
   pricePerLiter: number;
@@ -35,7 +36,8 @@ export interface FuelFill {
 export interface NewFuelFill {
   clientUuid?: string | null;
   date: string;
-  gaugePercentBefore: number;
+  /** NULL when the gauge was not read. 0 is a reading; absent is not. */
+  gaugePercentBefore: number | null;
   litersAdded: number;
   litersBeforeFill: number | null;
   pricePerLiter: number;
@@ -49,7 +51,7 @@ interface FuelFillRow {
   id: number;
   client_uuid: string | null;
   date: string | Date;
-  gauge_percent_before: number | string;
+  gauge_percent_before: number | string | null;
   liters_added: string | number;
   liters_before_fill: string | number | null;
   price_per_liter: string | number;

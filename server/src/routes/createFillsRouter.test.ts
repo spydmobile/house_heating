@@ -150,13 +150,37 @@ describe('fills router', () => {
 
     it.each([
       ['date', { ...validBody, date: undefined }],
-      ['gauge_percent_before', { ...validBody, gauge_percent_before: undefined }],
       ['liters_added', { ...validBody, liters_added: undefined }],
       ['price_per_liter', { ...validBody, price_per_liter: undefined }],
     ])('400s when %s is missing', async (_field, body) => {
       const response = await request(appWith(fakeStore())).post('/api/fills').send(body);
 
       expect(response.status).toBe(400);
+    });
+
+    /**
+     * gauge_percent_before USED TO BE in the list above, and this test replaces
+     * that one deliberately rather than deleting a rule.
+     *
+     * Migration 003 made the column nullable because the old contract made
+     * honesty impossible: the gauge is sometimes not read — the real 2026-02-24
+     * delivery recorded "Gauge before fill unknown" — and a NOT NULL column
+     * meant the only way to file that fill was to type 0, which asserts an
+     * empty tank. The schema manufactured a measurement nobody took.
+     *
+     * The delivery is still real: date, litres and price are all required. It
+     * is only the reading of the gauge that may be absent.
+     */
+    it('accepts a fill whose gauge reading was never taken', async () => {
+      const store = fakeStore();
+
+      const response = await request(appWith(store))
+        .post('/api/fills')
+        .send({ ...validBody, gauge_percent_before: undefined });
+
+      expect(response.status).toBe(201);
+      expect(store.saved[0].gaugePercentBefore).toBeNull();
+      expect(store.saved[0].litersBeforeFill).toBeNull();
     });
 
     /**
