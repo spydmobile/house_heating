@@ -204,6 +204,82 @@ describe.skipIf(!url)('the SQL, against a real Postgres', () => {
     });
   });
 
+  /**
+   * MIGRATION 003's ROLLBACK, AND THE WINDOW IN WHICH IT STILL WORKS.
+   *
+   * Circuit declined to run the rebuild without a stated rollback, which is
+   * right: `ALTER TABLE ... DROP NOT NULL` on Franco's populated table is a
+   * schema change made by starting a container, and it is not undone by
+   * restarting.
+   *
+   * The rollback is `SET NOT NULL`, and it is only available while no NULL has
+   * landed. That makes the ORDER of the deploy load-bearing: the migration is
+   * reversible right up until the 2026-02-24 row is set to NULL, and not
+   * afterwards unless that row is given a value back first.
+   *
+   * Tested here rather than asserted in a plan, because a rollback nobody has
+   * executed is a hope.
+   */
+  describe('migration 003 rollback', () => {
+    it('SET NOT NULL succeeds while no NULL has landed', async () => {
+      await client.query('BEGIN');
+
+      await client.query(
+        `INSERT INTO fuel_fills (date, gauge_percent_before, liters_added, price_per_liter)
+         VALUES ('2025-01-10', 45, 400, 1.4);`,
+      );
+
+      await expect(
+        client.query(
+          'ALTER TABLE fuel_fills ALTER COLUMN gauge_percent_before SET NOT NULL;',
+        ),
+      ).resolves.toBeTruthy();
+
+      await client.query('ROLLBACK');
+    });
+
+    it('SET NOT NULL FAILS once a NULL exists — the window has closed', async () => {
+      await client.query('BEGIN');
+
+      await client.query(
+        `INSERT INTO fuel_fills (date, gauge_percent_before, liters_added, price_per_liter)
+         VALUES ('2026-02-24', NULL, 511.7, 1.435);`,
+      );
+
+      await expect(
+        client.query(
+          'ALTER TABLE fuel_fills ALTER COLUMN gauge_percent_before SET NOT NULL;',
+        ),
+      ).rejects.toThrow(/contains null values/i);
+
+      await client.query('ROLLBACK');
+    });
+
+    it('and is available again once that row is given a value back', async () => {
+      // So the rollback is never truly lost — it costs restoring the
+      // fabrication the migration existed to remove, which is a decision rather
+      // than an accident.
+      await client.query('BEGIN');
+
+      await client.query(
+        `INSERT INTO fuel_fills (date, gauge_percent_before, liters_added, price_per_liter)
+         VALUES ('2026-02-24', NULL, 511.7, 1.435);`,
+      );
+
+      await client.query(
+        `UPDATE fuel_fills SET gauge_percent_before = 0 WHERE gauge_percent_before IS NULL;`,
+      );
+
+      await expect(
+        client.query(
+          'ALTER TABLE fuel_fills ALTER COLUMN gauge_percent_before SET NOT NULL;',
+        ),
+      ).resolves.toBeTruthy();
+
+      await client.query('ROLLBACK');
+    });
+  });
+
   it('enforces one row per date, which every conflict clause here depends on', async () => {
     await expect(
       client.query(
